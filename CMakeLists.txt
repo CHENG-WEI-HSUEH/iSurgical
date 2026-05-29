@@ -12,12 +12,27 @@ find_package(holoscan 3.0 REQUIRED CONFIG PATHS "/opt/nvidia/holoscan" "/workspa
 find_package(CUDA REQUIRED)
 find_package(OpenCV REQUIRED)
 
-add_executable(iSurgical 
-./src/main.cpp)
+# Load the PkgConfig module tool
+find_package(PkgConfig REQUIRED)
+
+# Query the system for yaml-cpp paths automatically 
+pkg_check_modules(YAML_CPP REQUIRED IMPORTED_TARGET yaml-cpp)
+
+add_executable(iSurgical
+    src/app/main.cpp
+    src/app/pipeline/pipeline.cpp
+    src/operators/yuan_capture_source/yuan_capture_source.cpp
+)
 
 target_include_directories(iSurgical
     PRIVATE
         ${OpenCV_INCLUDE_DIRS}
+        ${CUDA_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/app
+        ${CMAKE_SOURCE_DIR}/src/app/pipeline
+        ${CMAKE_SOURCE_DIR}/src/operators
+        ${CMAKE_SOURCE_DIR}/src/operators/yuan_capture_source
 )
 
 target_link_libraries(iSurgical
@@ -25,5 +40,8 @@ target_link_libraries(iSurgical
         holoscan::core
         holoscan::ops::format_converter
         holoscan::ops::holoviz
+
+        PkgConfig::YAML_CPP
         ${OpenCV_LIBS}
+        ${CUDA_LIBRARIES}
 )

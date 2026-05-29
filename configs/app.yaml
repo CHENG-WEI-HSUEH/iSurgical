@@ -1,7 +1,4 @@
-application:
-  name: iSurgical
-video:
-  device: /dev/video0
-visualization:
-  width: 3840
-  height: 1080
+Device: /dev/video0
+Width: 1920
+Height: 1080
+Channels: 3

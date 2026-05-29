@@ -8,13 +8,13 @@ WORKDIR /workspace/iSurgical
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         libopencv-dev \
-        pkg-config && \
+        pkg-config \
+        libyaml-cpp-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY CMakeLists.txt ./
 COPY src ./src
 COPY configs ./configs
-COPY tests ./tests
 
 RUN mkdir -p build && \
     cd build && \
@@ -38,13 +38,13 @@ RUN apt-get update && \
         gstreamer1.0-plugins-base \
         gstreamer1.0-plugins-good \
         gstreamer1.0-plugins-bad \
-        gstreamer1.0-plugins-ugly && \
+        gstreamer1.0-plugins-ugly \
+        libyaml-cpp-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p ./bin ./data/inputs ./data/outputs ./data/reports ./logs
 
 COPY --from=builder /workspace/iSurgical/build/iSurgical ./bin/iSurgical
 COPY configs ./configs
-COPY data/models ./data/models
 
 CMD ["./bin/iSurgical"]
