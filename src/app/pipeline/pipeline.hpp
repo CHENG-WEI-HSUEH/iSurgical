@@ -11,13 +11,19 @@ class InferencePipeline : public holoscan::Application {
     void compose() override;
 
   private:
-    std::shared_ptr<holoscan::Operator> video_source_op_;
-    std::shared_ptr<holoscan::Operator> pre_processor_op_;
-    std::shared_ptr<holoscan::Operator> segmentation_inference_op_;
-    std::shared_ptr<holoscan::Operator> post_processor_op_;
-    std::shared_ptr<holoscan::Operator> result_visualizer_op_;
+    void ConfigureSourceOperator();
+    void ConfigurePreProcessorOperator();
+    void ConfigureInferenceOperator();
+    void ConfigurePostProcessorOperator();
+    void ConfigureVisualizerOperator(); 
 
+    std::shared_ptr<holoscan::Operator> source_op_;
+    std::shared_ptr<holoscan::Operator> pre_processor_op_;
+    std::shared_ptr<holoscan::Operator> inference_op_;  
+    std::shared_ptr<holoscan::Operator> post_processor_op_;
+    std::shared_ptr<holoscan::Operator> visualizer_op_;
     std::shared_ptr<holoscan::CudaStreamPool> cuda_stream_pool_;
+
 
     YAML::Node config_;
 };

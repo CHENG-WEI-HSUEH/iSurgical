@@ -22,6 +22,8 @@ add_executable(iSurgical
     src/app/main.cpp
     src/app/pipeline/pipeline.cpp
     src/operators/yuan_capture_source/yuan_capture_source.cpp
+    src/operators/yolo_seg_postprocessor_gpu/yolo_seg_postprocessor_gpu.cpp
+    src/operators/yolo_seg_postprocessor_gpu/CUDA_Postprocess.cu
 )
 
 target_include_directories(iSurgical
@@ -33,6 +35,7 @@ target_include_directories(iSurgical
         ${CMAKE_SOURCE_DIR}/src/app/pipeline
         ${CMAKE_SOURCE_DIR}/src/operators
         ${CMAKE_SOURCE_DIR}/src/operators/yuan_capture_source
+        ${CMAKE_SOURCE_DIR}/src/operators/yolo_seg_postprocessor_gpu
 )
 
 target_link_libraries(iSurgical
@@ -40,8 +43,10 @@ target_link_libraries(iSurgical
         holoscan::core
         holoscan::ops::format_converter
         holoscan::ops::holoviz
-
+        holoscan::ops::inference
         PkgConfig::YAML_CPP
         ${OpenCV_LIBS}
         ${CUDA_LIBRARIES}
 )
+
+target_link_options(iSurgical PRIVATE "-Wl,--allow-shlib-undefined")

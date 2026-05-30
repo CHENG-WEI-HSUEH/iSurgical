@@ -30,6 +30,7 @@ void YuanCaptureSourceOp::start() {
   } else {
     pipeline =
         "v4l2src device=" + device + " io-mode=mmap do-timestamp=true ! "
+        "video/x-raw,format=YUY2,width=3840,height=2160,framerate=30/1 ! "
         "queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! "
         "videoconvert n-threads=2 ! "
         "video/x-raw,format=BGR ! "

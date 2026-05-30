@@ -5,6 +5,4 @@ build
 .idea
 data/outputs
 data/reports
-logs
 *.mp4
-*.log
