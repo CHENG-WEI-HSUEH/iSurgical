@@ -2,6 +2,4 @@ build/
 *.o
 *.so
 *.a
-*.log
-data/
 *.mp4
