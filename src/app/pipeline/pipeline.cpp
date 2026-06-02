@@ -11,6 +11,7 @@
 #include "./operators/yuan_capture_source/yuan_capture_source.hpp"
 #include "./operators/yolo_seg_postprocessor_gpu/yolo_seg_postprocessor_gpu.hpp"
 #include "./operators/periodic_counter/periodic_counter.hpp"
+#include "./operators/async_recorder/async_recorder.hpp"
 
 
 void InferencePipeline::ConfigureSourceOperator() {
@@ -19,6 +20,8 @@ void InferencePipeline::ConfigureSourceOperator() {
     source_op_ = make_operator<YuanCaptureSourceOp>(
         "YuanCaptureSource",
         holoscan::Arg("device") = config_["Device"].as<std::string>(),
+        holoscan::Arg("width") = config_["Width"].as<int>(),
+        holoscan::Arg("height") = config_["Height"].as<int>(),
         holoscan::Arg("allocator") = source_allocator
     );
 }
@@ -102,6 +105,18 @@ void InferencePipeline::ConfigurePeriodicCounterOperator() {
     );
 }
 
+void InferencePipeline::ConfigureRecorderOperator() {
+    recorder_op_ = make_operator<AsyncRecorderOp>(
+        "AsyncRecorder",
+        holoscan::Arg("recording_path") = config_["RecordingPath"].as<std::string>(),
+        holoscan::Arg("source_width") = static_cast<int>(config_["Width"].as<uint32_t>()),
+        holoscan::Arg("source_height") = static_cast<int>(config_["Height"].as<uint32_t>()),
+        holoscan::Arg("overlay_width") = 1920,
+        holoscan::Arg("overlay_height") = 1080,
+        holoscan::Arg("fps") = 30
+    );
+}
+
 void InferencePipeline::compose() {
     ConfigureSourceOperator();
     ConfigurePreProcessorOperator();
@@ -109,12 +124,17 @@ void InferencePipeline::compose() {
     ConfigurePostProcessorOperator();
     ConfigureVisualizerOperator();
     ConfigurePeriodicCounterOperator();
+    ConfigureRecorderOperator();
 
     add_flow(source_op_, pre_processor_op_, {{"output", "source_video"}});
     add_flow(source_op_, visualizer_op_, {{"output", "receivers"}});
     add_flow(pre_processor_op_, inference_op_, {{"tensor", "receivers"}});
     add_flow(inference_op_, post_processor_op_, {{"transmitter", "in"}});
     add_flow(post_processor_op_, visualizer_op_, {{"out", "receivers"}});
+
+    // Recorder receives raw source and segmentation overlay (same frame)
+    add_flow(source_op_, recorder_op_, {{"output", "raw_input"}});
+    add_flow(post_processor_op_, recorder_op_, {{"out", "seg_input"}});
 
     add_operator(periodic_counter_op_);
 

@@ -13,24 +13,28 @@ void YuanCaptureSourceOp::setup(holoscan::OperatorSpec& spec) {
   spec.output<nvidia::gxf::Entity>("output");
 
   spec.param(this->device_, "device", "Device", "Video device", std::string("/dev/video0"));
+  spec.param(this->width_, "width", "Width", "Capture width", 1920);
+  spec.param(this->height_, "height", "Height", "Capture height", 1080);
   spec.param(this->allocator_, "allocator", "Allocator", "CUDA Allocator for GPU tensor output");
 }
 
 void YuanCaptureSourceOp::start() {
   const std::string device = device_.get();
+  int w = width_.get();
+  int h = height_.get();
 
   std::string pipeline;
   if (device == "test") {
     pipeline =
         "videotestsrc pattern=smpte ! "
-        "video/x-raw,width=1920,height=1080,framerate=30/1 ! "
+        "video/x-raw,width=" + std::to_string(w) + ",height=" + std::to_string(h) + ",framerate=30/1 ! "
         "videoconvert ! "
         "video/x-raw,format=BGR ! "
         "appsink drop=true max-buffers=2 sync=false";
   } else {
     pipeline =
         "v4l2src device=" + device + " io-mode=mmap do-timestamp=true ! "
-        "video/x-raw,format=YUY2,width=3840,height=2160,framerate=30/1 ! "
+        "video/x-raw,format=YUY2,width=" + std::to_string(w) + ",height=" + std::to_string(h) + ",framerate=30/1 ! "
         "queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! "
         "videoconvert n-threads=2 ! "
         "video/x-raw,format=BGR ! "

@@ -23,6 +23,8 @@ class YuanCaptureSourceOp : public holoscan::Operator {
 
   private:
     holoscan::Parameter<std::string> device_;
+    holoscan::Parameter<int> width_;
+    holoscan::Parameter<int> height_;
     holoscan::Parameter<std::shared_ptr<holoscan::Allocator>> allocator_;
 
     cv::VideoCapture cap_;

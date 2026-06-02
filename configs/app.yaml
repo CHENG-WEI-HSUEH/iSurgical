@@ -1,7 +1,7 @@
 # Source
 Device: /dev/video0
-Width: 3840
-Height: 2160
+Width: 1920
+Height: 1080
 
 # Pre-processor (FormatConverter)
 InferenceFormat: "float32"
@@ -15,3 +15,6 @@ ModelPath: "/workspace/iSurgical/data/models/urology_yolov9.onnx"
 # Post-processor
 ScoreThreshold: 0.5
 NumClass: 80
+
+# Recording
+RecordingPath: "/workspace/iSurgical/outputs"

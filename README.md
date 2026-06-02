@@ -52,6 +52,7 @@ docker build --no-cache --network=host -f docker/Dockerfile -t isurgical-app:lat
 ## Run
 
 ```bash
+  xhost +local:docker
   docker run --rm -it \
       --runtime nvidia \
       --privileged \
@@ -64,6 +65,7 @@ docker build --no-cache --network=host -f docker/Dockerfile -t isurgical-app:lat
       --device /dev/video0:/dev/video0 \
       -v $(pwd)/configs:/workspace/iSurgical/configs \
       -v $(pwd)/data:/workspace/iSurgical/data \
+      -v $(pwd)/outputs:/workspace/iSurgical/outputs \
       isurgical-app:latest \
       ./bin/iSurgical configs/app.yaml
 ```
