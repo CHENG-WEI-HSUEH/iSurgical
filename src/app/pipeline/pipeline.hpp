@@ -15,13 +15,15 @@ class InferencePipeline : public holoscan::Application {
     void ConfigurePreProcessorOperator();
     void ConfigureInferenceOperator();
     void ConfigurePostProcessorOperator();
-    void ConfigureVisualizerOperator(); 
+    void ConfigureVisualizerOperator();
+    void ConfigurePeriodicCounterOperator();
 
     std::shared_ptr<holoscan::Operator> source_op_;
     std::shared_ptr<holoscan::Operator> pre_processor_op_;
     std::shared_ptr<holoscan::Operator> inference_op_;  
     std::shared_ptr<holoscan::Operator> post_processor_op_;
     std::shared_ptr<holoscan::Operator> visualizer_op_;
+    std::shared_ptr<holoscan::Operator> periodic_counter_op_;
     std::shared_ptr<holoscan::CudaStreamPool> cuda_stream_pool_;
 
 

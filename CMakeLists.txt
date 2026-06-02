@@ -24,6 +24,7 @@ add_executable(iSurgical
     src/operators/yuan_capture_source/yuan_capture_source.cpp
     src/operators/yolo_seg_postprocessor_gpu/yolo_seg_postprocessor_gpu.cpp
     src/operators/yolo_seg_postprocessor_gpu/CUDA_Postprocess.cu
+    src/operators/periodic_counter/periodic_counter.cpp
 )
 
 target_include_directories(iSurgical
@@ -36,6 +37,7 @@ target_include_directories(iSurgical
         ${CMAKE_SOURCE_DIR}/src/operators
         ${CMAKE_SOURCE_DIR}/src/operators/yuan_capture_source
         ${CMAKE_SOURCE_DIR}/src/operators/yolo_seg_postprocessor_gpu
+        ${CMAKE_SOURCE_DIR}/src/operators/periodic_counter
 )
 
 target_link_libraries(iSurgical

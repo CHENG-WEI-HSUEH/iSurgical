@@ -10,6 +10,7 @@
 
 #include "./operators/yuan_capture_source/yuan_capture_source.hpp"
 #include "./operators/yolo_seg_postprocessor_gpu/yolo_seg_postprocessor_gpu.hpp"
+#include "./operators/periodic_counter/periodic_counter.hpp"
 
 
 void InferencePipeline::ConfigureSourceOperator() {
@@ -91,18 +92,31 @@ InferencePipeline::InferencePipeline(const YAML::Node& config)
     );
 }
 
+void InferencePipeline::ConfigurePeriodicCounterOperator() {
+    auto async_condition = make_condition<holoscan::AsynchronousCondition>("async_condition");
+
+    periodic_counter_op_ = make_operator<PeriodicCounterOp>(
+        "PeriodicCounter",
+        async_condition,
+        holoscan::Arg("interval_ms") = int64_t(1000)
+    );
+}
+
 void InferencePipeline::compose() {
     ConfigureSourceOperator();
     ConfigurePreProcessorOperator();
     ConfigureInferenceOperator();
     ConfigurePostProcessorOperator();
     ConfigureVisualizerOperator();
+    ConfigurePeriodicCounterOperator();
 
     add_flow(source_op_, pre_processor_op_, {{"output", "source_video"}});
     add_flow(source_op_, visualizer_op_, {{"output", "receivers"}});
     add_flow(pre_processor_op_, inference_op_, {{"tensor", "receivers"}});
     add_flow(inference_op_, post_processor_op_, {{"transmitter", "in"}});
     add_flow(post_processor_op_, visualizer_op_, {{"out", "receivers"}});
+
+    add_operator(periodic_counter_op_);
 
     HOLOSCAN_LOG_INFO("Inference Pipeline Composed.");
 }
