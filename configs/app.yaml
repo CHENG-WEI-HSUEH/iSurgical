@@ -1,7 +1,10 @@
 # Source
 Device: /dev/video0
-Width: 1920
-Height: 1080
+Width: 3840
+Height: 2160
+
+Sys_Width: 1920
+Sys_Height: 1080
 
 # Pre-processor (FormatConverter)
 InferenceFormat: "float32"
@@ -11,6 +14,9 @@ NumBlocks: 4
 
 # Inference
 ModelPath: "/workspace/iSurgical/data/models/urology_yolov9.onnx"
+PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
+# Surgical Phase Recognition
+PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
 
 # Post-processor
 ScoreThreshold: 0.5

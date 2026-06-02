@@ -26,6 +26,7 @@ add_executable(iSurgical
     src/operators/yolo_seg_postprocessor_gpu/CUDA_Postprocess.cu
     src/operators/periodic_counter/periodic_counter.cpp
     src/operators/async_recorder/async_recorder.cpp
+    src/operators/surgical_phase/surgical_phase.cpp
 )
 
 target_include_directories(iSurgical
@@ -40,6 +41,7 @@ target_include_directories(iSurgical
         ${CMAKE_SOURCE_DIR}/src/operators/yolo_seg_postprocessor_gpu
         ${CMAKE_SOURCE_DIR}/src/operators/periodic_counter
         ${CMAKE_SOURCE_DIR}/src/operators/async_recorder
+        ${CMAKE_SOURCE_DIR}/src/operators/surgical_phase
 )
 
 target_link_libraries(iSurgical
@@ -51,6 +53,8 @@ target_link_libraries(iSurgical
         PkgConfig::YAML_CPP
         ${OpenCV_LIBS}
         ${CUDA_LIBRARIES}
+        nvinfer
+        nvonnxparser
         stdc++fs
 )
 

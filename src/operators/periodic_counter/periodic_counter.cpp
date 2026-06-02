@@ -1,7 +1,6 @@
 #include "periodic_counter.hpp"
 
 #include <chrono>
-#include <thread>
 
 void PeriodicCounterOp::setup(holoscan::OperatorSpec& spec) {
   spec.param(interval_ms_, "interval_ms", "Interval (ms)",
@@ -18,8 +17,10 @@ void PeriodicCounterOp::start() {
     auto interval = std::chrono::milliseconds(interval_ms_.get());
 
     while (is_running_) {
-      std::this_thread::sleep_for(interval);
-      if (!is_running_) break;
+      std::unique_lock<std::mutex> lock(stop_mutex_);
+      if (stop_cv_.wait_for(lock, interval, [this]() { return !is_running_.load(); })) {
+        break;
+      }
 
       async_condition_->event_state(holoscan::AsynchronousEventState::EVENT_DONE);
     }
@@ -29,7 +30,12 @@ void PeriodicCounterOp::start() {
 }
 
 void PeriodicCounterOp::stop() {
-  is_running_ = false;
+  {
+    std::lock_guard<std::mutex> lock(stop_mutex_);
+    is_running_ = false;
+  }
+  stop_cv_.notify_all();
+
   if (timer_thread_.joinable()) {
     timer_thread_.join();
   }

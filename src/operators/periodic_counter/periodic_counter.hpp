@@ -3,6 +3,8 @@
 
 #include <thread>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 
 #include <holoscan/holoscan.hpp>
 
@@ -24,6 +26,8 @@ class PeriodicCounterOp : public holoscan::Operator {
   std::thread timer_thread_;
   std::atomic<bool> is_running_{false};
   std::atomic<uint64_t> count_{0};
+  std::mutex stop_mutex_;
+  std::condition_variable stop_cv_;
 };
 
 #endif // _PERIODIC_COUNTER_HPP_
