@@ -1,6 +1,7 @@
 #include "async_recorder.hpp"
 
 #include <filesystem>
+#include <future>
 
 void AsyncRecorderOp::setup(holoscan::OperatorSpec& spec) {
   spec.input<holoscan::gxf::Entity>("raw_input")
@@ -9,7 +10,7 @@ void AsyncRecorderOp::setup(holoscan::OperatorSpec& spec) {
 
   spec.param(recording_path_, "recording_path", "Recording Path",
              "Directory to save recordings",
-             std::string("/workspace/iSurgical/outputs"));
+             std::string("/workspace/iSurgical/data/outputs"));
   spec.param(source_width_, "source_width", "Source Width",
              "Raw capture frame width", 1920);
   spec.param(source_height_, "source_height", "Source Height",
@@ -50,7 +51,18 @@ void AsyncRecorderOp::stop() {
   queue_cv_.notify_one();
 
   if (writer_thread_.joinable()) {
-    writer_thread_.join();
+    std::future<void> fut = std::async(std::launch::async, [this]() {
+      writer_thread_.join();
+    });
+    if (fut.wait_for(std::chrono::seconds(2)) == std::future_status::timeout) {
+      HOLOSCAN_LOG_WARN("AsyncRecorderOp: writer thread did not exit in time, detaching");
+      writer_thread_.detach();
+    }
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    std::queue<RecordFrame>().swap(frame_queue_);
   }
 
   raw_writer_.release();
@@ -62,58 +74,56 @@ void AsyncRecorderOp::stop() {
 void AsyncRecorderOp::compute(holoscan::InputContext& input,
                               holoscan::OutputContext&,
                               holoscan::ExecutionContext&) {
+  if (!is_running_) return;
+
   int srcW = source_width_.get();
   int srcH = source_height_.get();
   int ovW = overlay_width_.get();
   int ovH = overlay_height_.get();
 
-  // Drain all raw frames from input (kNone means they may queue up)
-  while (true) {
-    auto raw_msg = input.receive<holoscan::TensorMap>("raw_input");
-    if (!raw_msg) break;
-
+  // Drain all raw frames (kNone port), keep latest
+  auto raw_msg = input.receive<holoscan::TensorMap>("raw_input");
+  while (raw_msg) {
     auto& raw_tmap = raw_msg.value();
-    if (raw_tmap.find("video") == raw_tmap.end()) continue;
+    auto it = raw_tmap.find("tensor");
+    if (it == raw_tmap.end()) it = raw_tmap.find("video");
+    if (it != raw_tmap.end()) {
+      auto raw_tensor = it->second;
+      cv::Mat raw_rgb(srcH, srcW, CV_8UC3);
+      size_t raw_bytes = static_cast<size_t>(srcW) * srcH * 3;
+      cudaMemcpy(raw_rgb.data, raw_tensor->data(), raw_bytes, cudaMemcpyDeviceToHost);
 
-    auto raw_tensor = raw_tmap["video"];
-    cv::Mat raw_rgb(srcH, srcW, CV_8UC3);
-    size_t raw_bytes = static_cast<size_t>(srcW) * srcH * 3;
-    cudaMemcpy(raw_rgb.data, raw_tensor->data(), raw_bytes, cudaMemcpyDeviceToHost);
+      cv::Mat raw_resized;
+      if (srcW != ovW || srcH != ovH) {
+        cv::resize(raw_rgb, raw_resized, cv::Size(ovW, ovH));
+      } else {
+        raw_resized = raw_rgb;
+      }
 
-    cv::Mat raw_resized;
-    if (srcW != ovW || srcH != ovH) {
-      cv::resize(raw_rgb, raw_resized, cv::Size(ovW, ovH));
-    } else {
-      raw_resized = raw_rgb;
+      cv::Mat raw_bgr;
+      cv::cvtColor(raw_resized, raw_bgr, cv::COLOR_RGB2BGR);
+
+      std::lock_guard<std::mutex> lock(raw_buffer_mutex_);
+      raw_buffer_ = std::move(raw_bgr);
+      has_raw_ = true;
     }
-
-    cv::Mat raw_bgr;
-    cv::cvtColor(raw_resized, raw_bgr, cv::COLOR_RGB2BGR);
-
-    std::lock_guard<std::mutex> lock(raw_buffer_mutex_);
-    raw_buffer_ = std::move(raw_bgr);
-    has_raw_ = true;
+    raw_msg = input.receive<holoscan::TensorMap>("raw_input");
   }
 
-  // seg_input has default condition — compute() is triggered when seg arrives
+  // seg_input triggers compute (default condition)
   auto seg_msg = input.receive<holoscan::TensorMap>("seg_input");
   if (!seg_msg) return;
-
-  auto& seg_tmap = seg_msg.value();
-  if (seg_tmap.find("OverlayTensor") == seg_tmap.end()) {
-    HOLOSCAN_LOG_WARN("AsyncRecorderOp: seg_input missing 'OverlayTensor'");
-    return;
-  }
 
   cv::Mat current_raw;
   {
     std::lock_guard<std::mutex> lock(raw_buffer_mutex_);
-    if (!has_raw_) {
-      HOLOSCAN_LOG_WARN("AsyncRecorderOp: no raw frame buffered yet, skipping");
-      return;
-    }
+    if (!has_raw_) return;
     current_raw = raw_buffer_.clone();
   }
+
+  // Process segmentation overlay
+  auto& seg_tmap = seg_msg.value();
+  if (seg_tmap.find("OverlayTensor") == seg_tmap.end()) return;
 
   auto seg_tensor = seg_tmap["OverlayTensor"];
   size_t seg_bytes = static_cast<size_t>(ovW) * ovH * 4 * sizeof(float);
@@ -170,8 +180,7 @@ void AsyncRecorderOp::writerLoop() {
         return !frame_queue_.empty() || !is_running_;
       });
 
-      if (!is_running_ && frame_queue_.empty()) break;
-      if (frame_queue_.empty()) continue;
+      if (!is_running_) break;
 
       frame = std::move(frame_queue_.front());
       frame_queue_.pop();

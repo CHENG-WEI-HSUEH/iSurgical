@@ -5,6 +5,7 @@
 #include <chrono>
 #include <algorithm>
 #include <cstring>
+#include <future>
 
 void TrtLogger::log(Severity severity, const char* msg) noexcept {
   if (severity <= Severity::kWARNING) {
@@ -143,7 +144,13 @@ void SurgicalPhaseOp::stop() {
   stop_cv_.notify_all();
 
   if (worker_thread_.joinable()) {
-    worker_thread_.join();
+    std::future<void> fut = std::async(std::launch::async, [this]() {
+      worker_thread_.join();
+    });
+    if (fut.wait_for(std::chrono::seconds(3)) == std::future_status::timeout) {
+      HOLOSCAN_LOG_WARN("SurgicalPhaseOp: worker thread did not exit in time, detaching");
+      worker_thread_.detach();
+    }
   }
 
   if (d_input_) { cudaFree(d_input_); d_input_ = nullptr; }
@@ -254,7 +261,11 @@ void SurgicalPhaseOp::runInference() {
   size_t output_bytes = seq * kNumClasses * sizeof(float);
   std::vector<float> output_buffer(seq * kNumClasses);
   cudaMemcpyAsync(output_buffer.data(), d_output_, output_bytes, cudaMemcpyDeviceToHost, infer_stream_);
-  cudaStreamSynchronize(infer_stream_);
+
+  while (cudaStreamQuery(infer_stream_) == cudaErrorNotReady) {
+    if (!is_running_) return;
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
 
   float* logits = output_buffer.data() + (seq - 1) * kNumClasses;
   int max_idx = std::distance(logits, std::max_element(logits, logits + kNumClasses));

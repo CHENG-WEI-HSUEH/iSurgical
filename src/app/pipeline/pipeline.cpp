@@ -119,14 +119,28 @@ void InferencePipeline::ConfigurePeriodicCounterOperator() {
     );
 }
 
+void InferencePipeline::ConfigureRecordePreProcessorOperator() {
+    auto record_fc_block_size = config_["Sys_Width"].as<uint32_t>() * config_["Sys_Height"].as<uint32_t>() * 3 * sizeof(uint8_t);
+
+    pre_record_processor_op_ = make_operator<holoscan::ops::FormatConverterOp>(
+        "RecordFormatConverterOp",
+        holoscan::Arg("out_dtype") = std::string("uint8"),
+        holoscan::Arg("in_tensor_name") = std::string("video"),
+        holoscan::Arg("out_tensor_name") = std::string("tensor"),
+        holoscan::Arg("resize_height") = config_["Sys_Height"].as<int>(),
+        holoscan::Arg("resize_width") = config_["Sys_Width"].as<int>(),
+        holoscan::Arg("pool") = make_resource<holoscan::BlockMemoryPool>("pool", 1, record_fc_block_size, config_["NumBlocks"].as<uint32_t>()),
+        holoscan::Arg("cuda_stream_pool") = cuda_stream_pool_);
+}
+
 void InferencePipeline::ConfigureRecorderOperator() {
     recorder_op_ = make_operator<AsyncRecorderOp>(
         "AsyncRecorder",
         holoscan::Arg("recording_path") = config_["RecordingPath"].as<std::string>(),
-        holoscan::Arg("source_width") = static_cast<int>(config_["Width"].as<uint32_t>()),
-        holoscan::Arg("source_height") = static_cast<int>(config_["Height"].as<uint32_t>()),
-        holoscan::Arg("overlay_width") = static_cast<int>(config_["Width"].as<uint32_t>()),
-        holoscan::Arg("overlay_height") = static_cast<int>(config_["Height"].as<uint32_t>()),
+        holoscan::Arg("source_width") = static_cast<int>(config_["Sys_Width"].as<uint32_t>()),
+        holoscan::Arg("source_height") = static_cast<int>(config_["Sys_Height"].as<uint32_t>()),
+        holoscan::Arg("overlay_width") = static_cast<int>(config_["Sys_Width"].as<uint32_t>()),
+        holoscan::Arg("overlay_height") = static_cast<int>(config_["Sys_Height"].as<uint32_t>()),
         holoscan::Arg("fps") = 30
     );
 }
@@ -151,6 +165,7 @@ void InferencePipeline::compose() {
     ConfigureSourceOperator();
     ConfigureRawPreProcessorOperator();
     ConfigureInferencePreProcessorOperator();
+    ConfigureRecordePreProcessorOperator();
     ConfigureInferenceOperator();
     ConfigurePostProcessorOperator();
     ConfigureVisualizerOperator();
@@ -160,20 +175,21 @@ void InferencePipeline::compose() {
 
     add_flow(source_op_, pre_infer_processor_op_, {{"output", "source_video"}});
     add_flow(source_op_, pre_raw_processor_op_, {{"output", "source_video"}});
-    
+
     add_flow(pre_infer_processor_op_, inference_op_, {{"tensor", "receivers"}});
     add_flow(inference_op_, post_processor_op_, {{"transmitter", "in"}});
     add_flow(pre_raw_processor_op_, visualizer_op_, {{"tensor", "receivers"}});
     add_flow(post_processor_op_, visualizer_op_, {{"out", "receivers"}});
 
     // Recorder receives raw source and segmentation overlay (same frame)
-    add_flow(source_op_, recorder_op_, {{"output", "raw_input"}});
+    add_flow(source_op_, pre_record_processor_op_, {{"output", "source_video"}});
+    add_flow(pre_record_processor_op_, recorder_op_, {{"tensor", "raw_input"}});
     add_flow(post_processor_op_, recorder_op_, {{"out", "seg_input"}});
 
     // Surgical phase recognition receives raw frames from source
-    add_flow(source_op_, surgical_phase_op_, {{"output", "frame_input"}});
+    //add_flow(source_op_, surgical_phase_op_, {{"output", "frame_input"}});
 
-    //add_operator(periodic_counter_op_);
+    add_operator(periodic_counter_op_);
 
     HOLOSCAN_LOG_INFO("Inference Pipeline Composed.");
 }

@@ -46,7 +46,7 @@ class AsyncRecorderOp : public holoscan::Operator {
   cv::VideoWriter raw_writer_;
   cv::VideoWriter seg_writer_;
 
-  // Raw frame buffer (source arrives faster than seg)
+  // Latest raw frame (updated via kNone polling)
   std::mutex raw_buffer_mutex_;
   cv::Mat raw_buffer_;
   bool has_raw_ = false;

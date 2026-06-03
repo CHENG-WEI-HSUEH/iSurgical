@@ -23,4 +23,4 @@ ScoreThreshold: 0.5
 NumClass: 80
 
 # Recording
-RecordingPath: "/workspace/iSurgical/outputs"
+RecordingPath: "/workspace/iSurgical/data/outputs"

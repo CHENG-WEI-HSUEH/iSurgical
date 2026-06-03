@@ -14,6 +14,7 @@ class InferencePipeline : public holoscan::Application {
     void ConfigureSourceOperator();
     void ConfigureInferencePreProcessorOperator();
     void ConfigureRawPreProcessorOperator();
+    void ConfigureRecordePreProcessorOperator();
     void ConfigureInferenceOperator();
     void ConfigurePostProcessorOperator();
     void ConfigureVisualizerOperator();
@@ -25,6 +26,7 @@ class InferencePipeline : public holoscan::Application {
     std::shared_ptr<holoscan::Operator> source_op_;
     std::shared_ptr<holoscan::Operator> pre_infer_processor_op_;
     std::shared_ptr<holoscan::Operator> pre_raw_processor_op_;
+    std::shared_ptr<holoscan::Operator> pre_record_processor_op_;
     std::shared_ptr<holoscan::Operator> inference_op_;
     std::shared_ptr<holoscan::Operator> post_processor_op_;
     std::shared_ptr<holoscan::Operator> visualizer_op_;
