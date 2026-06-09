@@ -17,6 +17,7 @@ ModelPath: "/workspace/iSurgical/data/models/urology_yolov9.onnx"
 PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
 # Surgical Phase Recognition
 PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
+PhaseGrpcServer: "localhost:50051"
 
 # Post-processor
 ScoreThreshold: 0.5

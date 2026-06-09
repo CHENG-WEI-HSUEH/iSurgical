@@ -29,13 +29,12 @@ bool SurgicalPhaseOp::waitFor(std::chrono::milliseconds duration) {
 }
 
 void SurgicalPhaseOp::setup(holoscan::OperatorSpec& spec) {
-  spec.input<holoscan::gxf::Entity>("frame_input")
-      .condition(holoscan::ConditionType::kNone);
+  spec.input<holoscan::gxf::Entity>("frame_input");
 
   spec.param(model_path_, "model_path", "Model Path",
              "Path to surgical_phase_model.onnx");
   spec.param(interval_ms_, "interval_ms", "Interval (ms)",
-             "Inference trigger interval in milliseconds", int64_t(60000));
+             "Inference trigger interval in milliseconds", int64_t(5000));
   spec.param(seq_len_, "seq_len", "Sequence Length",
              "Number of frames to sample (1 per second)", 5);
 }
@@ -144,11 +143,17 @@ void SurgicalPhaseOp::stop() {
   stop_cv_.notify_all();
 
   if (worker_thread_.joinable()) {
-    std::future<void> fut = std::async(std::launch::async, [this]() {
+    constexpr int kMaxWaitMs = 5000;
+    constexpr int kPollMs = 50;
+    int waited = 0;
+    while (!worker_exited_.load() && waited < kMaxWaitMs) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(kPollMs));
+      waited += kPollMs;
+    }
+    if (worker_exited_.load()) {
       worker_thread_.join();
-    });
-    if (fut.wait_for(std::chrono::seconds(3)) == std::future_status::timeout) {
-      HOLOSCAN_LOG_WARN("SurgicalPhaseOp: worker thread did not exit in time, detaching");
+    } else {
+      HOLOSCAN_LOG_WARN("SurgicalPhaseOp: worker thread stuck in engine build, detaching");
       worker_thread_.detach();
     }
   }
@@ -164,7 +169,12 @@ void SurgicalPhaseOp::compute(holoscan::InputContext& input,
                               holoscan::OutputContext&,
                               holoscan::ExecutionContext&) {
   auto msg = input.receive<holoscan::TensorMap>("frame_input");
-  if (!msg) return;
+  if (!msg) {
+    if (!is_running_.load()) {
+      HOLOSCAN_LOG_INFO("SurgicalPhaseOp: compute exiting, operator stopped");
+    }
+    return;
+  }
 
   auto& tmap = msg.value();
   if (tmap.find("video") == tmap.end()) return;
@@ -186,29 +196,32 @@ void SurgicalPhaseOp::compute(holoscan::InputContext& input,
 
 void SurgicalPhaseOp::workerLoop() {
   HOLOSCAN_LOG_INFO("SurgicalPhaseOp: initializing TensorRT engine in background...");
+  if (!is_running_) { worker_exited_ = true; return; }
   if (!buildEngine()) {
     HOLOSCAN_LOG_ERROR("SurgicalPhaseOp: engine init failed, worker exiting");
+    worker_exited_ = true;
     return;
   }
+  if (!is_running_) { worker_exited_ = true; return; }
   HOLOSCAN_LOG_INFO("SurgicalPhaseOp: TensorRT engine ready");
 
-  // Wait for first frame
   while (is_running_) {
     {
       std::lock_guard<std::mutex> lock(frame_mutex_);
       if (has_frame_) break;
     }
-    if (!waitFor(std::chrono::milliseconds(100))) return;
+    if (!waitFor(std::chrono::milliseconds(100))) { worker_exited_ = true; return; }
   }
 
   auto interval = std::chrono::milliseconds(interval_ms_.get());
 
   while (is_running_) {
-    if (!waitFor(interval)) return;
-    if (!is_running_) return;
+    if (!waitFor(interval)) break;
+    if (!is_running_) break;
 
     runInference();
   }
+  worker_exited_ = true;
 }
 
 void SurgicalPhaseOp::runInference() {
@@ -262,13 +275,20 @@ void SurgicalPhaseOp::runInference() {
   std::vector<float> output_buffer(seq * kNumClasses);
   cudaMemcpyAsync(output_buffer.data(), d_output_, output_bytes, cudaMemcpyDeviceToHost, infer_stream_);
 
-  while (cudaStreamQuery(infer_stream_) == cudaErrorNotReady) {
-    if (!is_running_) return;
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  cudaStreamSynchronize(infer_stream_);
+  if (!is_running_) return;
+
+  std::vector<int> votes(kNumClasses, 0);
+  for (int t = 0; t < seq; ++t) {
+    float* logits = output_buffer.data() + t * kNumClasses;
+    int pred = std::distance(logits, std::max_element(logits, logits + kNumClasses));
+    votes[pred]++;
   }
+  int best = std::distance(votes.begin(), std::max_element(votes.begin(), votes.end()));
 
-  float* logits = output_buffer.data() + (seq - 1) * kNumClasses;
-  int max_idx = std::distance(logits, std::max_element(logits, logits + kNumClasses));
+  HOLOSCAN_LOG_INFO("[SurgicalPhase] Current phase: {}", kPhaseNames[best]);
 
-  HOLOSCAN_LOG_INFO("[SurgicalPhase] Current phase: {}", kPhaseNames[max_idx]);
+  if (phase_callback_) {
+    phase_callback_(kPhaseNames[best]);
+  }
 }

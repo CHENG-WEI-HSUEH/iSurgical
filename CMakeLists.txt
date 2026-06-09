@@ -15,8 +15,51 @@ find_package(OpenCV REQUIRED)
 # Load the PkgConfig module tool
 find_package(PkgConfig REQUIRED)
 
-# Query the system for yaml-cpp paths automatically 
+# Query the system for yaml-cpp paths automatically
 pkg_check_modules(YAML_CPP REQUIRED IMPORTED_TARGET yaml-cpp)
+
+# gRPC and Protobuf
+find_package(Protobuf REQUIRED)
+find_package(gRPC CONFIG QUIET)
+if(NOT gRPC_FOUND)
+  pkg_check_modules(GRPC REQUIRED IMPORTED_TARGET grpc++ grpc)
+endif()
+
+# Generate protobuf/gRPC sources
+set(PROTO_SRC_DIR "${CMAKE_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY ${PROTO_SRC_DIR})
+
+set(PROTO_FILE "${CMAKE_SOURCE_DIR}/protos/surgical_phase.proto")
+
+find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin)
+
+add_custom_command(
+    OUTPUT
+        "${PROTO_SRC_DIR}/surgical_phase.pb.cc"
+        "${PROTO_SRC_DIR}/surgical_phase.pb.h"
+        "${PROTO_SRC_DIR}/surgical_phase.grpc.pb.cc"
+        "${PROTO_SRC_DIR}/surgical_phase.grpc.pb.h"
+    COMMAND protobuf::protoc
+        --proto_path="${CMAKE_SOURCE_DIR}/protos"
+        --cpp_out="${PROTO_SRC_DIR}"
+        --grpc_out="${PROTO_SRC_DIR}"
+        --plugin=protoc-gen-grpc="${GRPC_CPP_PLUGIN}"
+        "${PROTO_FILE}"
+    DEPENDS "${PROTO_FILE}"
+    COMMENT "Generating gRPC/protobuf sources for surgical_phase.proto"
+)
+
+add_library(surgical_phase_proto STATIC
+    "${PROTO_SRC_DIR}/surgical_phase.pb.cc"
+    "${PROTO_SRC_DIR}/surgical_phase.grpc.pb.cc"
+)
+target_include_directories(surgical_phase_proto PUBLIC "${PROTO_SRC_DIR}")
+target_link_libraries(surgical_phase_proto PUBLIC protobuf::libprotobuf)
+if(gRPC_FOUND)
+    target_link_libraries(surgical_phase_proto PUBLIC gRPC::grpc++)
+else()
+    target_link_libraries(surgical_phase_proto PUBLIC PkgConfig::GRPC)
+endif()
 
 add_executable(iSurgical
     src/app/main.cpp
@@ -27,6 +70,7 @@ add_executable(iSurgical
     src/operators/periodic_counter/periodic_counter.cpp
     src/operators/async_recorder/async_recorder.cpp
     src/operators/surgical_phase/surgical_phase.cpp
+    src/operators/phase_grpc_client/phase_grpc_client.cpp
 )
 
 target_include_directories(iSurgical
@@ -42,6 +86,8 @@ target_include_directories(iSurgical
         ${CMAKE_SOURCE_DIR}/src/operators/periodic_counter
         ${CMAKE_SOURCE_DIR}/src/operators/async_recorder
         ${CMAKE_SOURCE_DIR}/src/operators/surgical_phase
+        ${CMAKE_SOURCE_DIR}/src/operators/phase_grpc_client
+        ${PROTO_SRC_DIR}
 )
 
 target_link_libraries(iSurgical
@@ -56,6 +102,7 @@ target_link_libraries(iSurgical
         nvinfer
         nvonnxparser
         stdc++fs
+        surgical_phase_proto
 )
 
 target_link_options(iSurgical PRIVATE "-Wl,--allow-shlib-undefined")

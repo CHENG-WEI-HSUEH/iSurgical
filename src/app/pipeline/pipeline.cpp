@@ -13,6 +13,7 @@
 #include "./operators/periodic_counter/periodic_counter.hpp"
 #include "./operators/async_recorder/async_recorder.hpp"
 #include "./operators/surgical_phase/surgical_phase.hpp"
+#include "./operators/phase_grpc_client/phase_grpc_client.hpp"
 
 void InferencePipeline::ConfigureSourceOperator() {
     auto source_allocator = make_resource<holoscan::UnboundedAllocator>("source_allocator");
@@ -151,12 +152,23 @@ void InferencePipeline::ConfigureSurgicalPhaseOperator() {
        phase_model = config_["PhaseModelPath"].as<std::string>();
    }
 
-
    surgical_phase_op_ = make_operator<SurgicalPhaseOp>(
        "SurgicalPhase",
        holoscan::Arg("model_path") = phase_model,
-       holoscan::Arg("interval_ms") = int64_t(10000),
+       holoscan::Arg("interval_ms") = int64_t(7000),
        holoscan::Arg("seq_len") = 5
+   );
+}
+
+void InferencePipeline::ConfigurePhaseGrpcClientOperator() {
+   std::string address = "localhost:50051";
+   if (config_["PhaseGrpcServer"]) {
+       address = config_["PhaseGrpcServer"].as<std::string>();
+   }
+
+   phase_grpc_client_op_ = make_operator<PhaseGrpcClientOp>(
+       "PhaseGrpcClient",
+       holoscan::Arg("server_address") = address
    );
 }
 
@@ -172,6 +184,7 @@ void InferencePipeline::compose() {
     ConfigurePeriodicCounterOperator();
     ConfigureRecorderOperator();
     ConfigureSurgicalPhaseOperator();
+    ConfigurePhaseGrpcClientOperator();
 
     add_flow(source_op_, pre_infer_processor_op_, {{"output", "source_video"}});
     add_flow(source_op_, pre_raw_processor_op_, {{"output", "source_video"}});
@@ -182,14 +195,23 @@ void InferencePipeline::compose() {
     add_flow(post_processor_op_, visualizer_op_, {{"out", "receivers"}});
 
     // Recorder receives raw source and segmentation overlay (same frame)
-    add_flow(source_op_, pre_record_processor_op_, {{"output", "source_video"}});
-    add_flow(pre_record_processor_op_, recorder_op_, {{"tensor", "raw_input"}});
-    add_flow(post_processor_op_, recorder_op_, {{"out", "seg_input"}});
+    // add_flow(source_op_, pre_record_processor_op_, {{"output", "source_video"}});
+    // add_flow(pre_record_processor_op_, recorder_op_, {{"tensor", "raw_input"}});
+    // add_flow(post_processor_op_, recorder_op_, {{"out", "seg_input"}});
 
     // Surgical phase recognition receives raw frames from source
-    //add_flow(source_op_, surgical_phase_op_, {{"output", "frame_input"}});
+    add_flow(source_op_, surgical_phase_op_, {{"output", "frame_input"}});
 
-    add_operator(periodic_counter_op_);
+    // Wire phase results to gRPC client via callback
+    auto phase_op = std::dynamic_pointer_cast<SurgicalPhaseOp>(surgical_phase_op_);
+    auto grpc_op = std::dynamic_pointer_cast<PhaseGrpcClientOp>(phase_grpc_client_op_);
+    phase_op->setPhaseCallback([grpc_op](const std::string& phase) {
+      grpc_op->sendPhase(phase);
+    });
+
+    add_operator(phase_grpc_client_op_);
+
+    //add_operator(periodic_counter_op_);
 
     HOLOSCAN_LOG_INFO("Inference Pipeline Composed.");
 }

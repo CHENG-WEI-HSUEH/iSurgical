@@ -13,6 +13,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <functional>
 
 class TrtLogger : public nvinfer1::ILogger {
  public:
@@ -37,6 +38,7 @@ class SurgicalPhaseOp : public holoscan::Operator {
 
   std::thread worker_thread_;
   std::atomic<bool> is_running_{false};
+  std::atomic<bool> worker_exited_{false};
   std::mutex stop_mutex_;
   std::condition_variable stop_cv_;
 
@@ -57,10 +59,17 @@ class SurgicalPhaseOp : public holoscan::Operator {
   static constexpr int kNumClasses = 7;
   static const std::vector<std::string> kPhaseNames;
 
+  std::function<void(const std::string&)> phase_callback_;
+
   bool waitFor(std::chrono::milliseconds duration);
   bool buildEngine();
   void workerLoop();
   void runInference();
+
+ public:
+  void setPhaseCallback(std::function<void(const std::string&)> cb) {
+    phase_callback_ = std::move(cb);
+  }
 };
 
 #endif // SURGICAL_PHASE_HPP
