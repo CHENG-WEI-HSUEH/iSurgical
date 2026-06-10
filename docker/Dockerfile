@@ -16,10 +16,15 @@ RUN --network=host apt-get update && \
         libgstreamer1.0-0 \
         libgstreamer-plugins-base1.0-0 \
         libgles2 \
-        libegl1 && \
+        libegl1 \
+        libprotobuf-dev \
+        protobuf-compiler \
+        libgrpc++-dev \
+        protobuf-compiler-grpc && \
     rm -rf /var/lib/apt/lists/*
 
 COPY CMakeLists.txt ./
+COPY protos ./protos
 COPY src ./src
 COPY configs ./configs
 

@@ -1,8 +1,6 @@
 #ifndef PHASE_GRPC_CLIENT_HPP
 #define PHASE_GRPC_CLIENT_HPP
 
-#include <holoscan/holoscan.hpp>
-
 #include <grpcpp/grpcpp.h>
 #include "surgical_phase.grpc.pb.h"
 
@@ -12,23 +10,16 @@
 #include <queue>
 #include <atomic>
 #include <string>
+#include <memory>
 
-class PhaseGrpcClientOp : public holoscan::Operator {
+class PhaseGrpcClient {
  public:
-  HOLOSCAN_OPERATOR_FORWARD_ARGS(PhaseGrpcClientOp)
-
-  void setup(holoscan::OperatorSpec& spec) override;
-  void start() override;
-  void stop() override;
-  void compute(holoscan::InputContext& input,
-               holoscan::OutputContext& output,
-               holoscan::ExecutionContext& context) override;
+  explicit PhaseGrpcClient(const std::string& server_address);
+  ~PhaseGrpcClient();
 
   void sendPhase(const std::string& phase);
 
  private:
-  holoscan::Parameter<std::string> server_address_;
-
   std::shared_ptr<grpc::Channel> channel_;
   std::unique_ptr<surgical_phase::SurgicalPhaseService::Stub> stub_;
 

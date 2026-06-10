@@ -3,8 +3,11 @@
 #define  _INFERENCE_PIPELINE_HPP_
 
 // Includes the main Holoscan framework API.
-#include <holoscan/holoscan.hpp>  
+#include <holoscan/holoscan.hpp>
 #include <yaml-cpp/yaml.h>
+
+#include "./operators/phase_grpc_client/phase_grpc_client.hpp"
+
 class InferencePipeline : public holoscan::Application {
   public:
     InferencePipeline(const YAML::Node& config);
@@ -21,7 +24,7 @@ class InferencePipeline : public holoscan::Application {
     void ConfigurePeriodicCounterOperator();
     void ConfigureRecorderOperator();
     void ConfigureSurgicalPhaseOperator();
-    void ConfigurePhaseGrpcClientOperator();
+    void ConfigurePhaseGrpcClient();
 
     // Operators
     std::shared_ptr<holoscan::Operator> source_op_;
@@ -34,9 +37,10 @@ class InferencePipeline : public holoscan::Application {
     std::shared_ptr<holoscan::Operator> periodic_counter_op_;
     std::shared_ptr<holoscan::Operator> recorder_op_;
     std::shared_ptr<holoscan::Operator> surgical_phase_op_;
-    std::shared_ptr<holoscan::Operator> phase_grpc_client_op_;
     std::shared_ptr<holoscan::CudaStreamPool> cuda_stream_pool_;
 
+    // Plain gRPC client (not a Holoscan operator)
+    std::shared_ptr<PhaseGrpcClient> phase_grpc_client_;
 
     YAML::Node config_;
 };

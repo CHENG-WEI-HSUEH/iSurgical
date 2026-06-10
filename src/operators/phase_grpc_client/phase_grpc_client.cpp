@@ -1,23 +1,18 @@
 #include "phase_grpc_client.hpp"
 #include <chrono>
+#include <iostream>
 
-void PhaseGrpcClientOp::setup(holoscan::OperatorSpec& spec) {
-  spec.param(server_address_, "server_address", "Server Address",
-             "gRPC server address", std::string("localhost:50051"));
-}
-
-void PhaseGrpcClientOp::start() {
-  channel_ = grpc::CreateChannel(server_address_.get(),
-                                 grpc::InsecureChannelCredentials());
+PhaseGrpcClient::PhaseGrpcClient(const std::string& server_address) {
+  channel_ = grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials());
   stub_ = surgical_phase::SurgicalPhaseService::NewStub(channel_);
 
   is_running_ = true;
-  sender_thread_ = std::thread(&PhaseGrpcClientOp::senderLoop, this);
+  sender_thread_ = std::thread(&PhaseGrpcClient::senderLoop, this);
 
-  HOLOSCAN_LOG_INFO("PhaseGrpcClientOp started (server={})", server_address_.get());
+  std::cout << "[PhaseGrpcClient] Started (server=" << server_address << ")" << std::endl;
 }
 
-void PhaseGrpcClientOp::stop() {
+PhaseGrpcClient::~PhaseGrpcClient() {
   {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     is_running_ = false;
@@ -27,16 +22,10 @@ void PhaseGrpcClientOp::stop() {
   if (sender_thread_.joinable()) {
     sender_thread_.join();
   }
-
-  HOLOSCAN_LOG_INFO("PhaseGrpcClientOp stopped");
+  std::cout << "[PhaseGrpcClient] Stopped" << std::endl;
 }
 
-void PhaseGrpcClientOp::compute(holoscan::InputContext&,
-                                holoscan::OutputContext&,
-                                holoscan::ExecutionContext&) {
-}
-
-void PhaseGrpcClientOp::sendPhase(const std::string& phase) {
+void PhaseGrpcClient::sendPhase(const std::string& phase) {
   {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     phase_queue_.push(phase);
@@ -44,7 +33,7 @@ void PhaseGrpcClientOp::sendPhase(const std::string& phase) {
   queue_cv_.notify_one();
 }
 
-void PhaseGrpcClientOp::senderLoop() {
+void PhaseGrpcClient::senderLoop() {
   while (true) {
     std::string phase;
     {
@@ -69,8 +58,12 @@ void PhaseGrpcClientOp::senderLoop() {
     context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(2));
 
     grpc::Status status = stub_->SendPhase(&context, request, &response);
-    if (!status.ok()) {
-      HOLOSCAN_LOG_WARN("PhaseGrpcClientOp: RPC failed: {}", status.error_message());
+    if (status.ok()) {
+      std::cout << "[PhaseGrpcClient] Sent phase '" << phase
+                << "' -> success=" << response.success() << std::endl;
+    } else {
+      std::cerr << "[PhaseGrpcClient] RPC FAILED (" << static_cast<int>(status.error_code())
+                << "): " << status.error_message() << std::endl;
     }
   }
 }

@@ -13,7 +13,6 @@
 #include "./operators/periodic_counter/periodic_counter.hpp"
 #include "./operators/async_recorder/async_recorder.hpp"
 #include "./operators/surgical_phase/surgical_phase.hpp"
-#include "./operators/phase_grpc_client/phase_grpc_client.hpp"
 
 void InferencePipeline::ConfigureSourceOperator() {
     auto source_allocator = make_resource<holoscan::UnboundedAllocator>("source_allocator");
@@ -160,16 +159,13 @@ void InferencePipeline::ConfigureSurgicalPhaseOperator() {
    );
 }
 
-void InferencePipeline::ConfigurePhaseGrpcClientOperator() {
+void InferencePipeline::ConfigurePhaseGrpcClient() {
    std::string address = "localhost:50051";
    if (config_["PhaseGrpcServer"]) {
        address = config_["PhaseGrpcServer"].as<std::string>();
    }
 
-   phase_grpc_client_op_ = make_operator<PhaseGrpcClientOp>(
-       "PhaseGrpcClient",
-       holoscan::Arg("server_address") = address
-   );
+   phase_grpc_client_ = std::make_shared<PhaseGrpcClient>(address);
 }
 
 
@@ -184,7 +180,7 @@ void InferencePipeline::compose() {
     ConfigurePeriodicCounterOperator();
     ConfigureRecorderOperator();
     ConfigureSurgicalPhaseOperator();
-    ConfigurePhaseGrpcClientOperator();
+    ConfigurePhaseGrpcClient();
 
     add_flow(source_op_, pre_infer_processor_op_, {{"output", "source_video"}});
     add_flow(source_op_, pre_raw_processor_op_, {{"output", "source_video"}});
@@ -204,12 +200,10 @@ void InferencePipeline::compose() {
 
     // Wire phase results to gRPC client via callback
     auto phase_op = std::dynamic_pointer_cast<SurgicalPhaseOp>(surgical_phase_op_);
-    auto grpc_op = std::dynamic_pointer_cast<PhaseGrpcClientOp>(phase_grpc_client_op_);
-    phase_op->setPhaseCallback([grpc_op](const std::string& phase) {
-      grpc_op->sendPhase(phase);
+    auto grpc_client = phase_grpc_client_;
+    phase_op->setPhaseCallback([grpc_client](const std::string& phase) {
+      grpc_client->sendPhase(phase);
     });
-
-    add_operator(phase_grpc_client_op_);
 
     //add_operator(periodic_counter_op_);
 
