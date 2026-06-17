@@ -14,6 +14,8 @@
 #include "./operators/async_recorder/async_recorder.hpp"
 #include "./operators/surgical_phase/surgical_phase.hpp"
 
+#include <stdexcept>
+
 void InferencePipeline::ConfigureSourceOperator() {
     auto source_allocator = make_resource<holoscan::UnboundedAllocator>("source_allocator");
 
@@ -31,32 +33,32 @@ void InferencePipeline::ConfigureInferencePreProcessorOperator() {
 
     pre_infer_processor_op_ = make_operator<holoscan::ops::FormatConverterOp>(
         "InferFormatConverterOp",
-        holoscan::Arg("out_dtype") = config_["InferenceFormat"].as<std::string>(),
+        holoscan::Arg("out_dtype") = procedure_config_["InferenceFormat"].as<std::string>(),
         holoscan::Arg("in_tensor_name") = std::string("video"),
         holoscan::Arg("out_tensor_name") = std::string("raw_video"),
-        holoscan::Arg("resize_height") = config_["InferenceResizeHeight"].as<int>(),
-        holoscan::Arg("resize_width") = config_["InferenceResizeWidth"].as<int>(),
-        holoscan::Arg("pool") = make_resource<holoscan::BlockMemoryPool>("pool", 1, src_fc_block_size, config_["NumBlocks"].as<uint32_t>()),
+        holoscan::Arg("resize_height") = procedure_config_["InferenceResizeHeight"].as<int>(),
+        holoscan::Arg("resize_width") = procedure_config_["InferenceResizeWidth"].as<int>(),
+        holoscan::Arg("pool") = make_resource<holoscan::BlockMemoryPool>("pool", 1, src_fc_block_size, procedure_config_["NumBlocks"].as<uint32_t>()),
         holoscan::Arg("cuda_stream_pool") = cuda_stream_pool_);
 }
 
 void InferencePipeline::ConfigureRawPreProcessorOperator() {
-    auto raw_fc_block_size = config_["Sys_Width"].as<uint32_t>() * config_["Sys_Height"].as<uint32_t>() * 3 * sizeof(uint8_t);
+    auto raw_fc_block_size = procedure_config_["Sys_Width"].as<uint32_t>() * procedure_config_["Sys_Height"].as<uint32_t>() * 3 * sizeof(uint8_t);
 
     pre_raw_processor_op_ = make_operator<holoscan::ops::FormatConverterOp>(
         "RawFormatConverterOp",
         holoscan::Arg("out_dtype") = std::string("uint8"),
         holoscan::Arg("in_tensor_name") = std::string("video"),
         holoscan::Arg("out_tensor_name") = std::string("tensor"),
-        holoscan::Arg("resize_height") = config_["Sys_Height"].as<int>(),
-        holoscan::Arg("resize_width") = config_["Sys_Width"].as<int>(),
-        holoscan::Arg("pool") = make_resource<holoscan::BlockMemoryPool>("pool", 1, raw_fc_block_size, config_["NumBlocks"].as<uint32_t>()),
+        holoscan::Arg("resize_height") = procedure_config_["Sys_Height"].as<int>(),
+        holoscan::Arg("resize_width") = procedure_config_["Sys_Width"].as<int>(),
+        holoscan::Arg("pool") = make_resource<holoscan::BlockMemoryPool>("pool", 1, raw_fc_block_size, procedure_config_["NumBlocks"].as<uint32_t>()),
         holoscan::Arg("cuda_stream_pool") = cuda_stream_pool_);
 }
 
 void InferencePipeline::ConfigureInferenceOperator() {
     holoscan::ops::InferenceOp::DataMap model_path_map;
-    model_path_map.insert("segmentation inference", config_["ModelPath"].as<std::string>());
+    model_path_map.insert("segmentation inference", procedure_config_["ModelPath"].as<std::string>());
 
     holoscan::ops::InferenceOp::DataVecMap pre_processor_map;
     pre_processor_map.insert("segmentation inference", std::vector<std::string>{"raw_video"});
@@ -83,23 +85,27 @@ void InferencePipeline::ConfigurePostProcessorOperator() {
 
     post_processor_op_ = make_operator<YoloSegPostprocesserGPUOp>(
         "YoloSegPostprocesserGPUOp",
-        holoscan::Arg("ScoreThredshold") = config_["ScoreThreshold"].as<float>(),
-        holoscan::Arg("NumClass") = config_["NumClass"].as<uint32_t>(),
-        holoscan::Arg("MemoryAllocator") = make_resource<holoscan::BlockMemoryPool>("pool", 1, src_fc_block_size, config_["NumBlocks"].as<uint32_t>()));
+        holoscan::Arg("colour_labels") = procedure_config_,
+        holoscan::Arg("MemoryAllocator") = make_resource<holoscan::BlockMemoryPool>("pool", 1, src_fc_block_size, procedure_config_["NumBlocks"].as<uint32_t>()));
 }
 
 void InferencePipeline::ConfigureVisualizerOperator() {
     visualizer_op_ = make_operator<holoscan::ops::HolovizOp>(
         "HoloViz",
-        holoscan::Arg("width") = config_["Sys_Width"].as<uint32_t>(),
-        holoscan::Arg("height") = config_["Sys_Height"].as<uint32_t>(),
+        holoscan::Arg("width") = procedure_config_["Sys_Width"].as<uint32_t>(),
+        holoscan::Arg("height") = procedure_config_["Sys_Height"].as<uint32_t>(),
         holoscan::Arg("cuda_stream_pool") = cuda_stream_pool_
     );
 }
 
-InferencePipeline::InferencePipeline(const YAML::Node& config)
-    : config_(config)
+InferencePipeline::InferencePipeline(const YAML::Node& config) : config_(config)
 {
+    std::string procedure = config_["Procedure"].as<std::string>();
+    procedure_config_ = config_["ProcedureConfig"][procedure];
+    if (!procedure_config_ || procedure_config_.IsNull()) {
+        throw std::runtime_error("Unknown Procedure in config: " + procedure);
+    }
+
     cuda_stream_pool_ = make_resource<holoscan::CudaStreamPool>(
         "cuda_stream_pool",
         holoscan::Arg("stream_flags", int64_t(0)),
@@ -120,16 +126,16 @@ void InferencePipeline::ConfigurePeriodicCounterOperator() {
 }
 
 void InferencePipeline::ConfigureRecordePreProcessorOperator() {
-    auto record_fc_block_size = config_["Sys_Width"].as<uint32_t>() * config_["Sys_Height"].as<uint32_t>() * 3 * sizeof(uint8_t);
+    auto record_fc_block_size = procedure_config_["Sys_Width"].as<uint32_t>() * procedure_config_["Sys_Height"].as<uint32_t>() * 3 * sizeof(uint8_t);
 
     pre_record_processor_op_ = make_operator<holoscan::ops::FormatConverterOp>(
         "RecordFormatConverterOp",
         holoscan::Arg("out_dtype") = std::string("uint8"),
         holoscan::Arg("in_tensor_name") = std::string("video"),
         holoscan::Arg("out_tensor_name") = std::string("tensor"),
-        holoscan::Arg("resize_height") = config_["Sys_Height"].as<int>(),
-        holoscan::Arg("resize_width") = config_["Sys_Width"].as<int>(),
-        holoscan::Arg("pool") = make_resource<holoscan::BlockMemoryPool>("pool", 1, record_fc_block_size, config_["NumBlocks"].as<uint32_t>()),
+        holoscan::Arg("resize_height") = procedure_config_["Sys_Height"].as<int>(),
+        holoscan::Arg("resize_width") = procedure_config_["Sys_Width"].as<int>(),
+        holoscan::Arg("pool") = make_resource<holoscan::BlockMemoryPool>("pool", 1, record_fc_block_size, procedure_config_["NumBlocks"].as<uint32_t>()),
         holoscan::Arg("cuda_stream_pool") = cuda_stream_pool_);
 }
 
@@ -137,10 +143,10 @@ void InferencePipeline::ConfigureRecorderOperator() {
     recorder_op_ = make_operator<AsyncRecorderOp>(
         "AsyncRecorder",
         holoscan::Arg("recording_path") = config_["RecordingPath"].as<std::string>(),
-        holoscan::Arg("source_width") = static_cast<int>(config_["Sys_Width"].as<uint32_t>()),
-        holoscan::Arg("source_height") = static_cast<int>(config_["Sys_Height"].as<uint32_t>()),
-        holoscan::Arg("overlay_width") = static_cast<int>(config_["Sys_Width"].as<uint32_t>()),
-        holoscan::Arg("overlay_height") = static_cast<int>(config_["Sys_Height"].as<uint32_t>()),
+        holoscan::Arg("source_width") = static_cast<int>(procedure_config_["Sys_Width"].as<uint32_t>()),
+        holoscan::Arg("source_height") = static_cast<int>(procedure_config_["Sys_Height"].as<uint32_t>()),
+        holoscan::Arg("overlay_width") = static_cast<int>(procedure_config_["Sys_Width"].as<uint32_t>()),
+        holoscan::Arg("overlay_height") = static_cast<int>(procedure_config_["Sys_Height"].as<uint32_t>()),
         holoscan::Arg("fps") = 30
     );
 }

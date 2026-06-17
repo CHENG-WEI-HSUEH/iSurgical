@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+constexpr int MAX_CLASS_COLORS = 32;
 
 // GPU / Host shared structure
 struct GpuBox
@@ -15,7 +16,7 @@ struct GpuBox
     float mask[32];         // segmentation coeffs
 };
 
-void UploadClassColorsToGPU(const float colors[12][4]);
+void UploadClassColorsToGPU(const float* colors, int num_classes);
 
 void RenderMasksToOverlayGPU(
     const float* d_kept_masks,

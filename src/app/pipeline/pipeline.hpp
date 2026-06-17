@@ -43,6 +43,7 @@ class InferencePipeline : public holoscan::Application {
     std::shared_ptr<PhaseGrpcClient> phase_grpc_client_;
 
     YAML::Node config_;
+    YAML::Node procedure_config_;
 };
 
 #endif //  "_INFERENCE_PIPELINE_HPP_"

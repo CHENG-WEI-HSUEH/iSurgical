@@ -38,37 +38,6 @@ constexpr int BOX_ROI_W = 640;
 constexpr int BOX_ROI_H = 640;
 constexpr int MAX_BOXES = 64;
 
-static const std::string LabelNames[12] = 
-{
-    "Background",
-    "Spleen",
-    "Left_Kidney",
-    "Left_Renal_Artery",
-    "Left_Renal_Vein",
-    "Left_Ureter",
-    "Left_Lumbar_Vein",
-    "Left_Adrenal_Vein",
-    "Left_Gonadal_Vein",
-    "Psoas_Muscle",
-    "Colon",
-    "Abdominal_Aorta",
-};
-
-static constexpr float kClassColors[12][4] = {
-    {0.0f,    0.0f,    0.0f,    0.0f},   // Background
-    {0.1451f, 0.9412f, 0.6157f, 0.2f},   // Spleen
-    {0.0098f, 0.3176f, 0.9410f, 0.2f},   // Left_Kidney
-    {1.0f,    0.8039f, 0.1529f, 0.2f},   // Left_Renal_Artery
-    {0.0039f, 0.9373f, 1.0f,    0.2f},   // Left_Renal_Vein
-    {0.9569f, 0.9019f, 0.1569f, 0.2f},   // Left_Ureter
-    {0.0157f, 0.4549f, 0.4509f, 0.0f},   // Left_Lumbar_Vein
-    {0.8941f, 0.5647f, 0.0706f, 0.0f},   // Left_Adrenal_Vein
-    {0.5019f, 0.1059f, 0.4471f, 0.0f},   // Left_Gonadal_Vein
-    {1.0f,    1.0f,    1.0f,    0.2f},   // Psoas_Muscle
-    {0.4314f, 0.4863f, 1.0f,    0.0f},   // Colon
-    {0.6784f, 0.4941f, 0.2745f, 0.0f}    // Abdominal_Aorta
-};
-
 static inline bool ComputeUnionROI(
     const int* kept_indices, int kept,
     const GpuBox* boxes,
@@ -117,10 +86,24 @@ void YoloSegPostprocesserGPUOp::setup(holoscan::OperatorSpec& spec)
     spec.input<nvidia::gxf::Entity>("in");
     spec.output<nvidia::gxf::Entity>("out");
 
-    spec.param(this->ScoreThredshold, "ScoreThredshold", "Scores threshold");
-    spec.param(this->NumClass, "NumClass", "Number of classes");
     spec.param(this->Mallocator, "MemoryAllocator", "Memory pool allocator");
+    spec.param(this->colour_labels_, "colour_labels", "Colour labels for classes");
+}
 
+void YoloSegPostprocesserGPUOp::start()
+{
+    const YAML::Node& colour_labels = this->colour_labels_.get();
+    this->label_names_ = colour_labels["label_names"].as<std::vector<std::string>>();
+    this->kclass_colours_ = colour_labels["kclass_colours"].as<std::vector<std::vector<float>>>();
+    this->confidence_threshold_ = colour_labels["ConfidenceThreshold"].as<float>();
+    this->iou_threshold_ = colour_labels["IoUThreshold"].as<float>();
+    this->mask_threshold_ = colour_labels["MaskThreshold"].as<float>();
+    this->hight_ = colour_labels["Sys_Height"].as<int>();
+    this->width_ = colour_labels["Sys_Width"].as<int>();
+    this->inference_resize_height_ = colour_labels["InferenceResizeHeight"].as<int>();
+    this->inference_resize_width_ = colour_labels["InferenceResizeWidth"].as<int>();
+    this->num_blocks_ = colour_labels["NumBlocks"].as<int>();
+    
     // -------------------------
     // GPU output buffers
     // -------------------------
@@ -164,13 +147,23 @@ void YoloSegPostprocesserGPUOp::setup(holoscan::OperatorSpec& spec)
         MAX_BOXES * 25600 * sizeof(float)
     );
 
-    UploadClassColorsToGPU(kClassColors);
+    {
+        int num_classes = static_cast<int>(this->kclass_colours_.size());
+        std::vector<float> flat_colours(num_classes * 4, 1.0f);
+        for (int c = 0; c < num_classes; ++c) {
+            const auto& colour = this->kclass_colours_[c];
+            for (size_t ch = 0; ch < colour.size() && ch < 4; ++ch) {
+                flat_colours[c * 4 + ch] = colour[ch];
+            }
+        }
+        UploadClassColorsToGPU(flat_colours.data(), num_classes);
+    }
 
     // -------------------------
     // CPU drawing buffers
     // -------------------------
-    cudaMallocHost(&this->h_box_roi_, 1920 * 1080 * 4 * sizeof(float));
-    this->BoxRoiMat = cv::Mat(1080, 1920, CV_32FC4, this->h_box_roi_);
+    cudaMallocHost(&this->h_box_roi_, this->width_ * this->hight_ * this->num_blocks_ * sizeof(float));
+    this->BoxRoiMat = cv::Mat(this->hight_, this->width_, CV_32FC4, this->h_box_roi_);
     this->BoxRoiMat.setTo(cv::Scalar(0,0,0,0));
 
     InitTxtROI();
@@ -190,7 +183,7 @@ void YoloSegPostprocesserGPUOp::compute(holoscan::InputContext& op_input,holosca
     if (!this->OverlayInitialised)
     {
         // Initialise overlay tensor (Don't move to setup/constructor, as it requires ExecutionContext)
-        this->OverlayEntity = InitOverlayTensor(context,1920,1080,this->Mallocator,"OverlayTensor");
+        this->OverlayEntity = InitOverlayTensor(context,this->Mallocator,"OverlayTensor");
 
         this->OverlayInitialised = true;
     }
@@ -217,8 +210,8 @@ void YoloSegPostprocesserGPUOp::compute(holoscan::InputContext& op_input,holosca
     gpu_pred_ptr,
     8400, // 8400 = 20*20 + 40*40 + 80*80
     38, // feat_dim 32 + 5 (for x,y,w,h,score) + 1 (class_logit)
-    0.25f, // confidence threshold
-    0.5f, // IOU threshold
+    this->confidence_threshold_, // confidence threshold
+    this->iou_threshold_, // IOU threshold
     this->d_out_boxes_,       // caller-allocated, size max_boxes (32)
     this->d_out_count_,      // caller-allocated, size 1
     this->d_keep_flags_, // caller-allocated, size max_boxes (32)
@@ -237,9 +230,9 @@ void YoloSegPostprocesserGPUOp::compute(holoscan::InputContext& op_input,holosca
         this->d_kept_boxes_,
         *this->h_kept_count_,
         this->d_overlay,
-        1920,
-        1080,
-        0.2f
+        this->width_,
+        this->hight_,
+        this->mask_threshold_
     );
 
     /*
@@ -249,7 +242,7 @@ void YoloSegPostprocesserGPUOp::compute(holoscan::InputContext& op_input,holosca
         this->ROITxtMat,
         this->h_text_roi,
         this->TxtBuf,
-        cv::Point(1920 - this->TEXT_W, 1080 - this->TEXT_H - 250),  
+        cv::Point(this->width_ - this->TEXT_W, this->hight_ - this->TEXT_H - 250),  
         cv::Scalar(1.0, 1.0, 1.0, 1.0) // RGBA
     );*/
 
@@ -293,8 +286,6 @@ void YoloSegPostprocesserGPUOp::ReceiveInputs(holoscan::InputContext& op_input,
 
 nvidia::gxf::Entity YoloSegPostprocesserGPUOp::InitOverlayTensor(
                                             holoscan::ExecutionContext& context,
-                                            int width,
-                                            int height,
                                             std::shared_ptr<holoscan::Allocator> allocator,
                                             const std::string& name)
 {
@@ -308,7 +299,7 @@ nvidia::gxf::Entity YoloSegPostprocesserGPUOp::InitOverlayTensor(
     auto gxf_allocator = nvidia::gxf::Handle<nvidia::gxf::Allocator>::Create(context.context(), allocator->gxf_cid());
 
     // 4. Reshape: NHWC = (H, W, 4)
-    nvidia::gxf::Shape shape{height, width, 4};
+    nvidia::gxf::Shape shape{this->hight_, this->width_, this->num_blocks_}; // 1080, 1920, 4 (RGBA)
 
     // 5. Reshape tensor
     tensor.value()->reshape<float>(
@@ -321,7 +312,7 @@ nvidia::gxf::Entity YoloSegPostprocesserGPUOp::InitOverlayTensor(
     this->d_overlay = tensor.value()->data<float>().value();
 
     // 7. Initialise overlay to zeros
-    cudaMemset(this->d_overlay, 0, width * height * 4 * sizeof(float));
+    cudaMemset(this->d_overlay, 0, this->width_ * this->hight_ * this->num_blocks_ * sizeof(float));
 
     // 8. Return entity
     return holoscan::gxf::Entity(std::move(entity.value()));
@@ -330,7 +321,7 @@ nvidia::gxf::Entity YoloSegPostprocesserGPUOp::InitOverlayTensor(
 void YoloSegPostprocesserGPUOp::InitTxtROI(void)
 {
     // 1. Calculate total bytes
-    size_t total_bytes = TEXT_W * TEXT_H * 4 * sizeof(float);
+    size_t total_bytes = TEXT_W * TEXT_H * this->num_blocks_ * sizeof(float);
 
     // 2. pinned host allocation
     cudaHostAlloc(
@@ -353,7 +344,7 @@ void YoloSegPostprocesserGPUOp::InitTxtROI(void)
 void YoloSegPostprocesserGPUOp::InitClearRoi()
 {
     // allocate pinned host
-    cudaMallocHost(&this->h_rubber_roi, TEXT_W * TEXT_H * 4 * sizeof(float));
+    cudaMallocHost(&this->h_rubber_roi, TEXT_W * TEXT_H * this->num_blocks_ * sizeof(float));
 
     // wrap as CV_32FC4 (RGBA float)
     this->Rubber_Mat = cv::Mat(TEXT_H, TEXT_W, CV_32FC4, this->h_rubber_roi);
@@ -365,9 +356,16 @@ void YoloSegPostprocesserGPUOp::InitClearRoi()
 
 void YoloSegPostprocesserGPUOp::ClearOverlay()
 {
-    cudaMemset(this->d_out_count_,   0, sizeof(int));
-    cudaMemset(this->d_kept_count_,  0, sizeof(int));
-    cudaMemset(this->d_keep_flags_,  0, MAX_BOXES * sizeof(uint8_t));
+    // 1. Reset device and host zero-copy counters (Your current code)
+    cudaMemsetAsync(this->d_out_count_,   0, sizeof(int), this->cuda_stream);
+    cudaMemsetAsync(this->d_kept_count_,  0, sizeof(int), this->cuda_stream);
+    cudaMemsetAsync(this->d_keep_flags_,  0, MAX_BOXES * sizeof(uint8_t), this->cuda_stream);
+
+    // 2. FIX: Completely blank out the actual GPU overlay mask tensor (H * W * 4 channels)
+    if (this->d_overlay != nullptr) {
+        size_t total_bytes = this->width_ * this->hight_ * this->num_blocks_ * sizeof(float);
+        cudaMemsetAsync(this->d_overlay, 0, total_bytes, this->cuda_stream);
+    }
 }
 
 void YoloSegPostprocesserGPUOp::SetText(
@@ -388,18 +386,18 @@ void YoloSegPostprocesserGPUOp::SetText(
         cv::FONT_HERSHEY_SIMPLEX,
         1.0f,       // Font scale
         color,      // RGBA
-        2.0f,          // Thickness
+        2.0f,       // Thickness
         cv::LINE_AA // Line type
     );
 
     // Copy ROI → GPU overlay (async, pinned) Full screen position
-    int roi_x = std::clamp(position.x, 0, 1920 - this->TEXT_W);
-    int roi_y = std::clamp(position.y, 0, 1080 - this->TEXT_H);
+    int roi_x = std::clamp(position.x, 0, this->width_ - this->TEXT_W);
+    int roi_y = std::clamp(position.y, 0, this->hight_ - this->TEXT_H);
 
-    size_t dst_pitch = 1920 * 4 * sizeof(float);
-    size_t src_pitch = TEXT_W * 4 * sizeof(float);
+    size_t dst_pitch = this->width_ * this->num_blocks_ * sizeof(float);
+    size_t src_pitch = this->TEXT_W * this->num_blocks_ * sizeof(float);
 
-    float* d_dst = this->d_overlay + (roi_y * 1920 + roi_x) * 4;
+    float* d_dst = this->d_overlay + (roi_y * this->width_ + roi_x) * this->num_blocks_;
 
     cudaMemcpy2DAsync(
         d_dst,      //Destination pointer
@@ -418,75 +416,110 @@ void YoloSegPostprocesserGPUOp::SetText(
 
 void YoloSegPostprocesserGPUOp::DrawKeptBoxesOnOverlay()
 {
-
-    cv::RNG rng(cv::getTickCount());
     this->BoxRoiMat.setTo(cv::Scalar(0, 0, 0, 0));
-    
-    int kept = *this->h_kept_count_;
 
-    for (int i = 0; i < kept; ++i)
-    {
-        const GpuBox& b = this->h_kept_boxes_[i];
+    // Bounding boxes and per-detection text labels are intentionally not drawn;
+    // only the segmentation masks (rendered separately on the GPU) and the
+    // static class legend are shown on the overlay.
 
-        int x1 = std::clamp((int)(b.x1 / 640 * 1920), 0, 1920 - 1);
-        int y1 = std::clamp((int)(b.y1 / 640 * 1080), 0, 1080 - 1);
-        int x2 = std::clamp((int)(b.x2 / 640 * 1920), 0, 1920 - 1);
-        int y2 = std::clamp((int)(b.y2 / 640 * 1080), 0, 1080 - 1);
-        float score = b.score;
-        int   cls_id   = b.class_id;
-
-        cv::Scalar color(
-            kClassColors[cls_id][0],
-            kClassColors[cls_id][1],
-            kClassColors[cls_id][2],
-            1.0f
-        );
-
-        
-
-            // 1) draw bounding box
-            cv::rectangle(
-                this->BoxRoiMat,
-                cv::Point(x1, y1),
-                cv::Point(x2, y2),
-                color,
-                2,
-                cv::LINE_AA
-            );
-        
-
-
-            // 2) draw label (left-top of box)
-            const std::string& label = LabelNames[cls_id] + "," + std::to_string(score * 100.0f).substr(0, 5) + "%";
-
-            int text_x = x1;
-            int text_y = std::max(12, y2 + 20); // Ensure text is within image bounds
-
-            cv::putText(
-                this->BoxRoiMat,
-                label,
-                cv::Point(text_x, text_y),
-                cv::FONT_HERSHEY_SIMPLEX,
-                0.5,        // font scale
-                cv::Scalar(1.0, 1.0, 1.0, 1.0), // white color
-                2,          // thickness
-                cv::LINE_AA
-            );
-        }
-    
+    // draw the legend menu of all configured classes
+    try {
+        DrawLegendOnOverlay();
+    } catch (const std::exception& e) {
+        HOLOSCAN_LOG_ERROR("DrawLegendOnOverlay threw: {}", e.what());
+    }
 
     // copy ROI → GPU overlay
     cudaMemcpy2DAsync(
         this->d_overlay,
-        1920 * 4 * sizeof(float),
+        this->width_ * this->num_blocks_ * sizeof(float),
         this->h_box_roi_,
-        1920 * 4 * sizeof(float),
-        1920 * 4 * sizeof(float),
-        1080,
+        this->width_ * this->num_blocks_ * sizeof(float),
+        this->width_ * this->num_blocks_ * sizeof(float),
+        this->hight_,
         cudaMemcpyHostToDevice,
         this->cuda_stream
     );
     
+}
+
+void YoloSegPostprocesserGPUOp::DrawLegendOnOverlay() {
+    // Show every configured class (skipping "Background") regardless of what's
+    // currently detected, so the legend is static rather than flickering per-frame.
+    std::vector<int> active_classes;
+    for (int cls_id = 1; cls_id < static_cast<int>(this->label_names_.size()); ++cls_id) {
+        active_classes.push_back(cls_id);
+    }
+
+    if (active_classes.empty()) return;
+
+    // 2. Geometry configuration for the legend menu panel (2 columns)
+    int item_height = 30;
+    int padding = 15;
+    int color_box_size = 20;
+    int columns = 2;
+    int col_width = 290;
+    int col_gap = 20;
+
+    int num_items = static_cast<int>(active_classes.size());
+    int rows = (num_items + columns - 1) / columns;
+
+    int legend_w = (padding * 2) + (col_width * columns) + (col_gap * (columns - 1));
+    int legend_h = (rows * item_height) + (padding * 2);
+
+    // Position legend box at the top right corner
+    int margin = 20;
+    int start_x = this->width_ - legend_w - margin;
+    int start_y = margin;
+
+    // 3. Draw a semi-transparent dark background card panel for readability
+    cv::Rect panel_rect(start_x, start_y, legend_w, legend_h);
+    // Mix overlay background with a 60% opacity dark tone
+    cv::Mat panel_roi = this->BoxRoiMat(panel_rect);
+    cv::Mat color_card(panel_roi.size(), panel_roi.type(), cv::Scalar(0.0f, 0.0f, 0.0f, 0.6f));
+    cv::addWeighted(color_card, 0.6, panel_roi, 0.4, 0.0, panel_roi);
+
+    // 4. Populate rows with corresponding labels and color swatches, filling left-to-right then top-to-bottom
+    for (int current_item = 0; current_item < num_items; ++current_item) {
+        int cls_id = active_classes[current_item];
+        int row = current_item / columns;
+        int col = current_item % columns;
+
+        int col_x = start_x + padding + col * (col_width + col_gap);
+        int row_y = start_y + padding + (row * item_height);
+
+        // Map colors (Ensure values scale into OpenCV's floating-point system)
+        cv::Scalar swatch_color(
+            this->kclass_colours_[cls_id][0],
+            this->kclass_colours_[cls_id][1],
+            this->kclass_colours_[cls_id][2],
+            1.0f
+        );
+
+        // Draw color rectangle block indicator
+        cv::Rect color_box(col_x, row_y + 4, color_box_size, color_box_size);
+        cv::rectangle(this->BoxRoiMat, color_box, swatch_color, cv::FILLED);
+        cv::rectangle(this->BoxRoiMat, color_box, cv::Scalar(1.0f, 1.0f, 1.0f, 1.0f), 1); // white border
+
+        // Fix missing character labels inside display strings manually if necessary
+        std::string display_name = this->label_names_[cls_id];
+        if (display_name == "Hepatoduodenal ligamen") {
+            display_name = "Hepatoduodenal ligament";
+        }
+
+        // Render matching label text alongside the box
+        cv::Point text_pos(col_x + color_box_size + 12, row_y + 20);
+        cv::putText(
+            this->BoxRoiMat,
+            display_name,
+            text_pos,
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.6,                             // Font scale
+            cv::Scalar(1.0f, 1.0f, 1.0f, 1.0f), // White text
+            1,                               // Thickness
+            cv::LINE_AA
+        );
+    }
 }
 
 YoloSegPostprocesserGPUOp::~YoloSegPostprocesserGPUOp()

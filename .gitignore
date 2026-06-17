@@ -3,3 +3,5 @@ build/
 *.so
 *.a
 *.mp4
+data/
+nsight_reports/

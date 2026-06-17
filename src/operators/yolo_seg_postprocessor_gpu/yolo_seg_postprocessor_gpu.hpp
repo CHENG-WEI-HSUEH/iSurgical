@@ -45,6 +45,7 @@ class YoloSegPostprocesserGPUOp : public holoscan::Operator
         HOLOSCAN_OPERATOR_FORWARD_ARGS(YoloSegPostprocesserGPUOp)
         YoloSegPostprocesserGPUOp() = default;
         void setup(holoscan::OperatorSpec& spec) override;
+        void start() override;
 
         void compute(
         holoscan::InputContext& op_input,
@@ -71,11 +72,21 @@ class YoloSegPostprocesserGPUOp : public holoscan::Operator
         std::string TxtBuf;
         
 
-        holoscan::Parameter<float> ScoreThredshold;
-        holoscan::Parameter<uint32_t> NumClass;
+        holoscan::Parameter<YAML::Node> colour_labels_;
+        std::vector<std::string> label_names_;
+        std::vector<std::vector<float>> kclass_colours_;    
+        float confidence_threshold_;
+        float iou_threshold_;
+        float mask_threshold_;
+        int hight_;
+        int width_;
+        int inference_resize_height_;
+        int inference_resize_width_;
+        int num_blocks_;
+        
         holoscan::Parameter<std::shared_ptr<holoscan::Allocator>> Mallocator;
         nvidia::gxf::Entity OverlayEntity;
-
+        
         cv::Mat ROITxtMat;
         cv::Mat Rubber_Mat;
         // Pinned host ROI (The ownership is CPU, but mapping to GXF / Holoscan allocator)
@@ -102,8 +113,6 @@ class YoloSegPostprocesserGPUOp : public holoscan::Operator
 
         nvidia::gxf::Entity InitOverlayTensor(
                             holoscan::ExecutionContext& context,
-                            int width,
-                            int height,
                             std::shared_ptr<holoscan::Allocator> allocator,
                             const std::string& name);
 
@@ -135,6 +144,8 @@ class YoloSegPostprocesserGPUOp : public holoscan::Operator
 
 
         void DrawKeptBoxesOnOverlay();
+        void DrawLegendOnOverlay();
+
 };
 
 #endif // YOLO_SEG_POSTPROCESSOR_GPU_HPP

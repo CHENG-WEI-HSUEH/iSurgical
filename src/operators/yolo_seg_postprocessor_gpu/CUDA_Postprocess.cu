@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <math.h>
 
-__constant__ float d_class_colors[12][4];
+__constant__ float d_class_colors[MAX_CLASS_COLORS][4];
 
 // -------------------------------
 // Confidence filter kernel
@@ -383,12 +383,12 @@ void RenderMasksToOverlayGPU(
     );
 }
 
-void UploadClassColorsToGPU(const float colors[12][4])
+void UploadClassColorsToGPU(const float* colors, int num_classes)
 {
     cudaMemcpyToSymbol(
         d_class_colors,
         colors,
-        sizeof(float) * 12 * 4
+        sizeof(float) * 4 * num_classes
     );
 }
 

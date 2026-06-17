@@ -3,25 +3,114 @@ Device: /dev/video0
 Width: 3840
 Height: 2160
 
-Sys_Width: 1920
-Sys_Height: 1080
-
-# Pre-processor (FormatConverter)
-InferenceFormat: "float32"
-InferenceResizeHeight: 640
-InferenceResizeWidth: 640
-NumBlocks: 4
-
-# Inference
-ModelPath: "/workspace/iSurgical/data/models/urology_yolov9.onnx"
-PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
 # Surgical Phase Recognition
 PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
 PhaseGrpcServer: "localhost:50051"
 
-# Post-processor
-ScoreThreshold: 0.5
-NumClass: 80
-
 # Recording
 RecordingPath: "/workspace/iSurgical/data/outputs"
+
+Procedure: "Laparoscopic Cholecystectomy" #"Urology" #
+ProcedureConfig:
+  Laparoscopic Cholecystectomy:
+    # Pre-processor (FormatConverter)
+    Sys_Width: 1920
+    Sys_Height: 1080
+
+    # Pre-processor (FormatConverter)
+    InferenceFormat: "float32"
+    InferenceResizeHeight: 224
+    InferenceResizeWidth: 224
+    NumBlocks: 4
+
+    # Inference (YoloSeg)
+    ModelPath: "/workspace/iSurgical/data/models/lc_seg_model.onnx"
+
+    # Post-processor (YoloSegPostprocesserGPU)
+    kclass_colours:
+      - [0.0, 0.0, 0.0, 1.0]                  #"Background"
+      - [0.0, 1.0, 0.0, 1.0]                  #"Gallbladder"
+      - [1.0, 0.0, 0.0, 1.0]                  #"Cystic duct"
+      - [0.0, 0.0, 1.0, 1.0]                  #"Cystic artery"
+      - [0.4706, 0.7333, 1.0, 1.0]            #"Liver"
+      - [1.0, 0.0, 1.0, 1.0]                  #"Hepatoduodenal ligament"
+      - [0.5961, 0.8745, 0.5412, 1.0]         #"bipolar"
+      - [0.1216, 0.4667, 0.7059, 1.0]         #"clipper"
+      - [0.6824, 0.7804, 0.9098, 1.0]         #"grasper"
+      - [1.0, 0.4980, 0.0549, 1.0]            #"hook"
+      - [1.0, 0.7333, 0.4706, 1.0]            #"irrigator"
+      - [0.1725, 0.6275, 0.1725, 1.0]         #"scissors"
+      - [0.5412, 0.8745, 0.5961, 1.0]         #"Duodenum"
+      - [0.8392, 0.1529, 0.1569, 1.0]         #"Common bile duct"
+      - [1.0, 0.5961, 0.5882, 1.0]            #"Fat"
+      - [1.0, 1.0, 0.0, 1.0]                  #"Rouvieres sulcus"
+
+    label_names:
+      - "Background"
+      - "Gallbladder"
+      - "Cystic duct"
+      - "Cystic artery"
+      - "Liver"
+      - "Hepatoduodenal ligament"
+      - "bipolar"
+      - "clipper"
+      - "grasper"
+      - "hook"
+      - "irrigator"
+      - "scissors"
+      - "Duodenum"
+      - "Common bile duct"
+      - "Fat"
+      - "Rouvieres sulcus"
+
+    ConfidenceThreshold: 0.25
+    IoUThreshold: 0.5
+    MaskThreshold: 0.5
+    NumClass: 16
+
+  Urology:
+    # Pre-processor (FormatConverter)
+    Sys_Width: 1920
+    Sys_Height: 1080
+
+    # Pre-processor (FormatConverter)
+    InferenceFormat: "float32"
+    InferenceResizeHeight: 640
+    InferenceResizeWidth: 640
+    NumBlocks: 4
+
+    # Inference (YoloSeg)
+    ModelPath: "/workspace/iSurgical/data/models/urology_yolov9.onnx"
+
+    kclass_colours:
+      - [0.0,    0.0,    0.0,    0.0]   #"Background"
+      - [0.1451, 0.9412, 0.6157, 0.2]   #"Spleen"
+      - [0.0098, 0.3176, 0.9410, 0.2]   #"Left_Kidney"
+      - [1.0,    0.8039, 0.1529, 0.2]   #"Left_Renal_Artery"
+      - [0.0039, 0.9373, 1.0,    0.2]   #"Left_Renal_Vein"
+      - [0.9569, 0.9019, 0.1569, 0.2]   #"Left_Ureter"
+      - [0.0157, 0.4549, 0.4509, 0.0]   #"Left_Lumbar_Vein"
+      - [0.8941, 0.5647, 0.0706, 0.0]   #"Left_Adrenal_Vein"
+      - [0.5019, 0.1059, 0.4471, 0.0]   #"Left_Gonadal_Vein"
+      - [1.0,    1.0,    1.0,    0.2]   #"Psoas_Muscle"
+      - [0.4314, 0.4863, 1.0,    0.0]   #"Colon"
+      - [0.6784, 0.4941, 0.2745, 0.0]   #"Abdominal_Aorta"
+
+    label_names:
+      - "Background"
+      - "Spleen"
+      - "Left_Kidney"
+      - "Left_Renal_Artery"
+      - "Left_Renal_Vein"
+      - "Left_Ureter"
+      - "Left_Lumbar_Vein"
+      - "Left_Adrenal_Vein"
+      - "Left_Gonadal_Vein"
+      - "Psoas_Muscle"
+      - "Colon"
+      - "Abdominal_Aorta"
+
+    ConfidenceThreshold: 0.25
+    IoUThreshold: 0.5
+    MaskThreshold: 0.5
+    NumClass: 12
