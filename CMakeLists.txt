@@ -69,7 +69,8 @@ add_executable(iSurgical
     src/operators/yolo_seg_postprocessor_gpu/CUDA_Postprocess.cu
     src/operators/periodic_counter/periodic_counter.cpp
     src/operators/async_recorder/async_recorder.cpp
-    src/operators/surgical_phase/surgical_phase.cpp
+    src/operators/lc_surgical_phase/lc_surgical_phase.cpp
+    src/operators/phase_frame_sampler/phase_frame_sampler.cpp
     src/operators/phase_grpc_client/phase_grpc_client.cpp
 )
 
@@ -85,7 +86,8 @@ target_include_directories(iSurgical
         ${CMAKE_SOURCE_DIR}/src/operators/yolo_seg_postprocessor_gpu
         ${CMAKE_SOURCE_DIR}/src/operators/periodic_counter
         ${CMAKE_SOURCE_DIR}/src/operators/async_recorder
-        ${CMAKE_SOURCE_DIR}/src/operators/surgical_phase
+        ${CMAKE_SOURCE_DIR}/src/operators/lc_surgical_phase
+        ${CMAKE_SOURCE_DIR}/src/operators/phase_frame_sampler
         ${CMAKE_SOURCE_DIR}/src/operators/phase_grpc_client
         ${PROTO_SRC_DIR}
 )

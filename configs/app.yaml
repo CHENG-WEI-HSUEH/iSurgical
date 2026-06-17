@@ -6,11 +6,13 @@ Height: 2160
 # Surgical Phase Recognition
 PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
 PhaseGrpcServer: "localhost:50051"
+PhaseSampleRateHz: 5      # How often the phase branch samples a frame, independent of video FPS
+PhaseReportIntervalSec: 60 # How often to log the highest-probability phase over the recent window
 
 # Recording
 RecordingPath: "/workspace/iSurgical/data/outputs"
 
-Procedure: "Laparoscopic Cholecystectomy" #"Urology" #
+Procedure: "Urology" #"Laparoscopic Cholecystectomy" #
 ProcedureConfig:
   Laparoscopic Cholecystectomy:
     # Pre-processor (FormatConverter)
@@ -68,6 +70,28 @@ ProcedureConfig:
     MaskThreshold: 0.5
     NumClass: 16
 
+
+  Laparoscopic_Gastric_Bypass:
+    InferenceResizeHeight: 224
+    InferenceResizeWidth: 224
+    ModelPath: "/workspace/iSurgical/data/models/lc_phase_model.onnx"
+    SequenceLength: 15
+    NumPhases: 13
+    PhaseName:
+      - "preparation"
+      - "gastric_pouch_creation"
+      - "omentum_division"
+      - "gastrojejunal_anastomosis"
+      - "anastomosis_test"
+      - "jejunal_separation"
+      - "closure_petersen_space"
+      - "jejunojejunal_anastomosis"
+      - "closure_mesenteric_defect"
+      - "cleaning_coagulation"
+      - "disassembling"
+      - "other_intervention"
+      - "out_of_body"
+
   Urology:
     # Pre-processor (FormatConverter)
     Sys_Width: 1920
@@ -114,3 +138,4 @@ ProcedureConfig:
     IoUThreshold: 0.5
     MaskThreshold: 0.5
     NumClass: 12
+

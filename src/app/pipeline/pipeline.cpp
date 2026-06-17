@@ -12,7 +12,8 @@
 #include "./operators/yolo_seg_postprocessor_gpu/yolo_seg_postprocessor_gpu.hpp"
 #include "./operators/periodic_counter/periodic_counter.hpp"
 #include "./operators/async_recorder/async_recorder.hpp"
-#include "./operators/surgical_phase/surgical_phase.hpp"
+#include "./operators/lc_surgical_phase/lc_surgical_phase.hpp"
+#include "./operators/phase_frame_sampler/phase_frame_sampler.hpp"
 
 #include <stdexcept>
 
@@ -113,6 +114,16 @@ InferencePipeline::InferencePipeline(const YAML::Node& config) : config_(config)
         holoscan::Arg("reserved_size", int64_t(1)),
         holoscan::Arg("max_size", int64_t(5))
     );
+
+    // Used only by the phase branch (runs on its own thread pool, see compose()), so it
+    // can't contend with cuda_stream_pool_ above for streams under real concurrency.
+    phase_cuda_stream_pool_ = make_resource<holoscan::CudaStreamPool>(
+        "phase_cuda_stream_pool",
+        holoscan::Arg("stream_flags", int64_t(0)),
+        holoscan::Arg("stream_priority", int64_t(0)),
+        holoscan::Arg("reserved_size", int64_t(1)),
+        holoscan::Arg("max_size", int64_t(4))
+    );
 }
 
 void InferencePipeline::ConfigurePeriodicCounterOperator() {
@@ -151,18 +162,94 @@ void InferencePipeline::ConfigureRecorderOperator() {
     );
 }
 
-void InferencePipeline::ConfigureSurgicalPhaseOperator() {
-   std::string phase_model = config_["PhaseModelPath"].as<std::string>();
-   if (config_["PhaseModelPath"]) {
-       phase_model = config_["PhaseModelPath"].as<std::string>();
-   }
+void InferencePipeline::ConfigurePhaseFrameSamplerOperator() {
+  int sample_rate_hz = 5;
+  if (config_["PhaseSampleRateHz"]) {
+    sample_rate_hz = config_["PhaseSampleRateHz"].as<int>();
+  }
+  int64_t period_ns = 1'000'000'000LL / sample_rate_hz;
 
-   surgical_phase_op_ = make_operator<SurgicalPhaseOp>(
-       "SurgicalPhase",
-       holoscan::Arg("model_path") = phase_model,
-       holoscan::Arg("interval_ms") = int64_t(7000),
-       holoscan::Arg("seq_len") = 5
-   );
+  phase_frame_sampler_op_ = make_operator<PhaseFrameSamplerOp>(
+      "PhaseFrameSampler",
+      make_condition<holoscan::PeriodicCondition>("phase_sample_period", period_ns)
+  );
+}
+
+void InferencePipeline::ConfigurePhasePreProcessorOperator() {
+    auto phase_config = config_["ProcedureConfig"]["Laparoscopic_Gastric_Bypass"];
+    auto phase_fc_block_size = config_["Width"].as<uint32_t>() * config_["Height"].as<uint32_t>() * 3 * sizeof(float);
+
+    phase_pre_processor_op_ = make_operator<holoscan::ops::FormatConverterOp>(
+        "PhaseFormatConverterOp",
+        holoscan::Arg("out_dtype") = std::string("float32"),
+        holoscan::Arg("in_tensor_name") = std::string("video"),
+        holoscan::Arg("out_tensor_name") = std::string("image"),
+        holoscan::Arg("resize_height") = phase_config["InferenceResizeHeight"].as<int>(),
+        holoscan::Arg("resize_width") = phase_config["InferenceResizeWidth"].as<int>(),
+        holoscan::Arg("pool") = make_resource<holoscan::BlockMemoryPool>("pool", 1, phase_fc_block_size, uint32_t(4)),
+        holoscan::Arg("cuda_stream_pool") = phase_cuda_stream_pool_);
+}
+
+void InferencePipeline::ConfigurePhaseInferenceOperator() {
+    auto phase_config = config_["ProcedureConfig"]["Laparoscopic_Gastric_Bypass"];
+
+    holoscan::ops::InferenceOp::DataMap model_path_map;
+    model_path_map.insert("phase inference", phase_config["ModelPath"].as<std::string>());
+
+    holoscan::ops::InferenceOp::DataVecMap pre_processor_map;
+    pre_processor_map.insert("phase inference", std::vector<std::string>{"image"});
+
+    // The phase model has two ONNX output nodes ("features" embedding and "phase_logits");
+    // InferenceOp requires every model output to be listed here even if unused downstream.
+    holoscan::ops::InferenceOp::DataVecMap inference_map;
+    inference_map.insert("phase inference", std::vector<std::string>{"features", "phase_logits"});
+
+    auto phase_device_allocator = make_resource<holoscan::UnboundedAllocator>("phase_device_allocator");
+
+    phase_inference_op_ = make_operator<holoscan::ops::InferenceOp>(
+        "phase_inference",
+        holoscan::Arg("model_path_map", model_path_map),
+        holoscan::Arg("pre_processor_map", pre_processor_map),
+        holoscan::Arg("inference_map", inference_map),
+        holoscan::Arg("backend", std::string("trt")),
+        holoscan::Arg("enable_fp16", true),
+        holoscan::Arg("allocator") = phase_device_allocator,
+        holoscan::Arg("cuda_stream_pool") = phase_cuda_stream_pool_
+    );
+}
+
+void InferencePipeline::ConfigureSurgicalPhaseOperator() {
+    auto bypass_config = config_["ProcedureConfig"]["Laparoscopic_Gastric_Bypass"];
+
+    int report_interval_sec = 60;
+    if (config_["PhaseReportIntervalSec"]) {
+        report_interval_sec = config_["PhaseReportIntervalSec"].as<int>();
+    }
+
+    if (!bypass_config) {
+        HOLOSCAN_LOG_ERROR("Laparoscopic_Gastric_Bypass configuration block not found in YAML.");
+
+        // Null Guard: Fallback allocation with safe defaults so the app won't SegFault
+        surgical_phase_op_ = make_operator<TemporalPhasePostprocessorOp>(
+            "SurgicalPhasePostprocessor",
+            holoscan::Arg("SequenceLength") = 15,
+            holoscan::Arg("NumPhases")      = 13,
+            holoscan::Arg("PhaseName")      = std::vector<std::string>{"Unknown"},
+            holoscan::Arg("ReportIntervalSec") = report_interval_sec
+        );
+        return;
+    }
+
+    // Normal initialization if the block exists
+    surgical_phase_op_ = make_operator<TemporalPhasePostprocessorOp>(
+        "SurgicalPhasePostprocessor",
+        holoscan::Arg("SequenceLength") = bypass_config["SequenceLength"].as<int>(),
+        holoscan::Arg("NumPhases")      = bypass_config["NumPhases"].as<int>(),
+        holoscan::Arg("PhaseName")      = bypass_config["PhaseName"].as<std::vector<std::string>>(),
+        holoscan::Arg("ReportIntervalSec") = report_interval_sec
+    );
+
+    HOLOSCAN_LOG_INFO("Surgical Phase Postprocessor configured successfully.");
 }
 
 void InferencePipeline::ConfigurePhaseGrpcClient() {
@@ -185,6 +272,9 @@ void InferencePipeline::compose() {
     ConfigureVisualizerOperator();
     ConfigurePeriodicCounterOperator();
     ConfigureRecorderOperator();
+    ConfigurePhaseFrameSamplerOperator();
+    ConfigurePhasePreProcessorOperator();
+    ConfigurePhaseInferenceOperator();
     ConfigureSurgicalPhaseOperator();
     ConfigurePhaseGrpcClient();
 
@@ -197,21 +287,35 @@ void InferencePipeline::compose() {
     add_flow(post_processor_op_, visualizer_op_, {{"out", "receivers"}});
 
     // Recorder receives raw source and segmentation overlay (same frame)
-    // add_flow(source_op_, pre_record_processor_op_, {{"output", "source_video"}});
-    // add_flow(pre_record_processor_op_, recorder_op_, {{"tensor", "raw_input"}});
-    // add_flow(post_processor_op_, recorder_op_, {{"out", "seg_input"}});
+    add_flow(source_op_, pre_record_processor_op_, {{"output", "source_video"}});
+    add_flow(pre_record_processor_op_, recorder_op_, {{"tensor", "raw_input"}});
+    add_flow(post_processor_op_, recorder_op_, {{"out", "seg_input"}});
 
-    // Surgical phase recognition receives raw frames from source
-    add_flow(source_op_, surgical_phase_op_, {{"output", "frame_input"}});
+    // Surgical phase recognition: sample frames at a fixed low rate (decoupled from the
+    // live video rate, see PhaseFrameSamplerOp), resize, run phase classification model,
+    // then feed the logits to the temporal smoothing postprocessor.
+    add_flow(source_op_, phase_frame_sampler_op_, {{"phase_output", "in"}});
+    add_flow(phase_frame_sampler_op_, phase_pre_processor_op_, {{"out", "source_video"}});
+    add_flow(phase_pre_processor_op_, phase_inference_op_, {{"tensor", "receivers"}});
+    add_flow(phase_inference_op_, surgical_phase_op_, {{"transmitter", "inference_output"}});
 
     // Wire phase results to gRPC client via callback
-    auto phase_op = std::dynamic_pointer_cast<SurgicalPhaseOp>(surgical_phase_op_);
+    auto phase_op = std::dynamic_pointer_cast<TemporalPhasePostprocessorOp>(surgical_phase_op_);
     auto grpc_client = phase_grpc_client_;
     phase_op->setPhaseCallback([grpc_client](const std::string& phase) {
       grpc_client->sendPhase(phase);
     });
 
     //add_operator(periodic_counter_op_);
+
+    // Note: the phase branch is deliberately NOT run on its own OS thread. Running two
+    // TensorRT engines (segmentation + phase) truly concurrently on separate threads
+    // crashes ("unknown exception" inside InferenceOp::Compute) on this hardware/SDK
+    // combo. Instead, the phase branch is decoupled purely via data flow: it ticks at a
+    // fixed low rate (PhaseFrameSamplerOp + PeriodicCondition) and never backs up frame
+    // capture (kPop queue + the dedicated "phase_output" port with no backpressure), so
+    // it still can't stall real-time segmentation even though both run on the same
+    // single-threaded GreedyScheduler, interleaved.
 
     HOLOSCAN_LOG_INFO("Inference Pipeline Composed.");
 }

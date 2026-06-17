@@ -10,7 +10,16 @@
 
 
 void YuanCaptureSourceOp::setup(holoscan::OperatorSpec& spec) {
+  // "output" keeps the default downstream-affordable backpressure: segmentation, raw
+  // preview and recording all consume every frame, so the source should naturally pace
+  // itself to them as before.
   spec.output<nvidia::gxf::Entity>("output");
+
+  // "phase_output" feeds only the rate-limited phase recognition branch (see
+  // PhaseFrameSamplerOp), which intentionally only drains at a few Hz. Backpressure is
+  // disabled here so that branch can never stall frame capture for the other consumers;
+  // the sampler's kPop input queue silently drops frames it doesn't get to in time.
+  spec.output<nvidia::gxf::Entity>("phase_output").condition(holoscan::ConditionType::kNone);
 
   spec.param(this->device_, "device", "Device", "Video device", std::string("/dev/video0"));
   spec.param(this->width_, "width", "Width", "Capture width", 1920);
@@ -123,9 +132,11 @@ void YuanCaptureSourceOp::compute(holoscan::InputContext&,
     throw std::runtime_error(std::string("cudaMemcpyAsync failed: ") + cudaGetErrorString(cuda_status));
   }
 
-  // Emit the native Holoscan GXF wrapper
+  // Emit the native Holoscan GXF wrapper. The same entity is published on both ports;
+  // GXF reference-counts it, so this is just two more readers of the same GPU buffer.
   auto out_entity = holoscan::gxf::Entity(std::move(entity.value()));
   op_output.emit(out_entity, "output");
+  op_output.emit(out_entity, "phase_output");
 }
 
 
