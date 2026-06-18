@@ -142,7 +142,7 @@ Is_Record: false
 SessionMetadata:
   OperatingRoom: OR-05
   Surgeons:
-    - Dr. Li
+    - Dr. Lin
   Department: General Surgery
-  PatientID: PT-0005D
-  Timestamp: '2026-06-18T21:41:15.291087'
+  PatientID: PT-0005D1
+  Timestamp: '2026-06-18T21:58:54.705619'

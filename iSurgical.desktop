@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=2.0
+Type=Application
+Name=iSurgical
+Comment=Run iSurgical pipeline
+Exec=/home/pandora/Documents/iSurgical/run.sh
+Path=/home/pandora/Documents/iSurgical
+Icon=/home/pandora/Pictures/SmartSurgeryTek_Icon.jpeg
+Terminal=false
+Categories=Development;
