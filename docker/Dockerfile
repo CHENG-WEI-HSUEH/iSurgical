@@ -50,6 +50,12 @@ FROM nvcr.io/nvidia/clara-holoscan/holoscan:v3.3.0-igpu AS runtime
 
 WORKDIR /workspace/iSurgical
 
+RUN --network=host apt-get update && \
+    apt-get install -y --no-install-recommends \
+        rsync \
+        openssh-client && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy all resolved runtime libraries and GStreamer plugins from builder
 COPY --from=builder /runtime-libs/ /usr/lib/aarch64-linux-gnu/
 COPY --from=builder /runtime-gst-plugins/gstreamer-1.0/ /usr/lib/aarch64-linux-gnu/gstreamer-1.0/
@@ -59,8 +65,14 @@ RUN mkdir -p ./bin ./data/inputs ./data/outputs ./data/reports ./logs
 
 COPY --from=builder /workspace/iSurgical/build/iSurgical ./bin/iSurgical
 COPY configs ./configs
+COPY scripts ./scripts
+RUN chmod +x ./scripts/move_mp4.sh
+
+COPY docker/entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=all
 
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["./bin/iSurgical", "configs/app.yaml"]

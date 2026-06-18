@@ -1,0 +1,16 @@
+# configs/dashboard.yaml
+DashboardSettings:
+  AvailableDepartments:
+    - "General Surgery"
+    - "Urology"
+    - "Gastroenterology"
+    - "Gynecology"
+    - "Orthopedics"
+    - "Cardiothoracic Surgery"
+    
+  FallbackProcedures:
+    - "Laparoscopic_Cholecystectomy"
+    - "Laparoscopic_Gastric_Bypass"
+
+gRpcSettings:
+  ServerAddress: "127.0.0.1:50051"

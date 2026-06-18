@@ -65,10 +65,12 @@ docker build --no-cache --network=host -f docker/Dockerfile -t isurgical-app:lat
       --device /dev/video0:/dev/video0 \
       -v $(pwd)/configs:/workspace/iSurgical/configs \
       -v $(pwd)/data:/workspace/iSurgical/data \
-      -v $(pwd)/outputs:/workspace/iSurgical/data/outputs \
+      -v $HOME/.ssh:/root/.ssh-host:ro \
       isurgical-app:latest \
       ./bin/iSurgical configs/app.yaml
 ```
+
+> `move_mp4.sh` (run automatically after the pipeline exits, to copy recordings off-device) uses SSH-key auth, so `~/.ssh` must be mounted in and your key must already be authorized on the remote host (`ssh-copy-id andyhsueh@192.168.0.52`).
 ```bash
   xhost +local:docker
   docker run --rm -it \
@@ -83,7 +85,7 @@ docker build --no-cache --network=host -f docker/Dockerfile -t isurgical-app:lat
       --device /dev/video0:/dev/video0 \
       -v $(pwd)/configs:/workspace/iSurgical/configs \
       -v $(pwd)/data:/workspace/iSurgical/data \
-      -v $(pwd)/outputs:/workspace/iSurgical/data/outputs \
+      -v $HOME/.ssh:/root/.ssh-host:ro \
       -v $(pwd)/nsight_reports:/workspace/iSurgical/nsight_reports \
       -v /opt/nvidia/nsight-systems/2024.5.4:/opt/nvidia/nsight-systems/2024.5.4 \
       isurgical-app:latest \

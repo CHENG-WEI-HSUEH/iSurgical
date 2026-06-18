@@ -46,6 +46,7 @@ class YoloSegPostprocesserGPUOp : public holoscan::Operator
         YoloSegPostprocesserGPUOp() = default;
         void setup(holoscan::OperatorSpec& spec) override;
         void start() override;
+        void stop() override;
 
         void compute(
         holoscan::InputContext& op_input,
@@ -94,7 +95,7 @@ class YoloSegPostprocesserGPUOp : public holoscan::Operator
         float* h_rubber_roi{nullptr};
 
 
-        cudaStream_t cuda_stream;
+        cudaStream_t cuda_stream{nullptr};
         nvidia::gxf::Entity in_entity;
 
         void ReceiveInputs(holoscan::InputContext& op_input,

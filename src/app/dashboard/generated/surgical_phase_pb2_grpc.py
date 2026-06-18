@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from . import surgical_phase_pb2 as surgical__phase__pb2
+import surgical_phase_pb2 as surgical__phase__pb2
 
 GRPC_GENERATED_VERSION = '1.81.0'
 GRPC_VERSION = grpc.__version__

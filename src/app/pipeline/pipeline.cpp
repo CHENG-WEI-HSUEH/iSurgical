@@ -102,6 +102,8 @@ void InferencePipeline::ConfigureVisualizerOperator() {
 InferencePipeline::InferencePipeline(const YAML::Node& config) : config_(config)
 {
     std::string procedure = config_["Procedure"].as<std::string>();
+    is_recorded_ = config_["IsRecorded"].as<bool>();
+
     procedure_config_ = config_["ProcedureConfig"][procedure];
     if (!procedure_config_ || procedure_config_.IsNull()) {
         throw std::runtime_error("Unknown Procedure in config: " + procedure);
@@ -282,9 +284,11 @@ void InferencePipeline::compose() {
     add_flow(post_processor_op_, visualizer_op_, {{"out", "receivers"}});
 
     // Recorder receives raw source and segmentation overlay (same frame)
-    add_flow(source_op_, pre_record_processor_op_, {{"output", "source_video"}});
-    add_flow(pre_record_processor_op_, recorder_op_, {{"tensor", "raw_input"}});
-    add_flow(post_processor_op_, recorder_op_, {{"out", "seg_input"}});
+    if (is_recorded_) {
+        add_flow(source_op_, pre_record_processor_op_, {{"output", "source_video"}});
+        add_flow(pre_record_processor_op_, recorder_op_, {{"tensor", "raw_input"}});
+        add_flow(post_processor_op_, recorder_op_, {{"out", "seg_input"}});
+    }
 
     // Surgical phase recognition: sample frames at a fixed low rate (decoupled from the
     // live video rate, see PhaseFrameSamplerOp), resize, run phase classification model,

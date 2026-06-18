@@ -10,8 +10,9 @@ PhaseSampleIntervalSec: 10 # How often to run phase recognition and print the re
 
 # Recording
 RecordingPath: "/workspace/iSurgical/data/outputs"
+IsRecorded: true
 
-Procedure: "Urology" #"Laparoscopic Cholecystectomy" #
+Procedure: "Laparoscopic Cholecystectomy" #"Laparoscopic Cholecystectomy" #
 ProcedureConfig:
   Laparoscopic Cholecystectomy:
     # Pre-processor (FormatConverter)
@@ -105,17 +106,17 @@ ProcedureConfig:
     ModelPath: "/workspace/iSurgical/data/models/urology_yolov9.onnx"
 
     kclass_colours:
-      - [0.0,    0.0,    0.0,    0.0]   #"Background"
+      - [0.0, 0.0, 0.0, 0.0]            #"Background"
       - [0.1451, 0.9412, 0.6157, 0.2]   #"Spleen"
       - [0.0098, 0.3176, 0.9410, 0.2]   #"Left_Kidney"
-      - [1.0,    0.8039, 0.1529, 0.2]   #"Left_Renal_Artery"
-      - [0.0039, 0.9373, 1.0,    0.2]   #"Left_Renal_Vein"
+      - [1.0, 0.8039, 0.1529, 0.2]      #"Left_Renal_Artery"
+      - [0.0039, 0.9373, 1.0, 0.2]      #"Left_Renal_Vein"
       - [0.9569, 0.9019, 0.1569, 0.2]   #"Left_Ureter"
       - [0.0157, 0.4549, 0.4509, 0.0]   #"Left_Lumbar_Vein"
       - [0.8941, 0.5647, 0.0706, 0.0]   #"Left_Adrenal_Vein"
       - [0.5019, 0.1059, 0.4471, 0.0]   #"Left_Gonadal_Vein"
-      - [1.0,    1.0,    1.0,    0.2]   #"Psoas_Muscle"
-      - [0.4314, 0.4863, 1.0,    0.0]   #"Colon"
+      - [1.0, 1.0, 1.0, 0.2]            #"Psoas_Muscle"
+      - [0.4314, 0.4863, 1.0, 0.0]      #"Colon"
       - [0.6784, 0.4941, 0.2745, 0.0]   #"Abdominal_Aorta"
 
     label_names:
@@ -137,22 +138,11 @@ ProcedureConfig:
     MaskThreshold: 0.5
     NumClass: 12
 
-  Laparoscopic_Gastric_Bypass:
-    InferenceResizeHeight: 224
-    InferenceResizeWidth: 224
-    ModelPath: "/workspace/iSurgical/data/models/lc_phase_model.onnx"
-    NumPhases: 13
-    PhaseName:
-      - "preparation"
-      - "gastric_pouch_creation"
-      - "omentum_division"
-      - "gastrojejunal_anastomosis"
-      - "anastomosis_test"
-      - "jejunal_separation"
-      - "closure_petersen_space"
-      - "jejunojejunal_anastomosis"
-      - "closure_mesenteric_defect"
-      - "cleaning_coagulation"
-      - "disassembling"
-      - "other_intervention"
-      - "out_of_body"
+Is_Record: false
+SessionMetadata:
+  OperatingRoom: OR-05
+  Surgeons:
+    - Dr. Li
+  Department: General Surgery
+  PatientID: PT-0005D
+  Timestamp: '2026-06-18T21:41:15.291087'

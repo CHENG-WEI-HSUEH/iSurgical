@@ -103,7 +103,13 @@ void YoloSegPostprocesserGPUOp::start()
     this->inference_resize_height_ = colour_labels["InferenceResizeHeight"].as<int>();
     this->inference_resize_width_ = colour_labels["InferenceResizeWidth"].as<int>();
     this->num_blocks_ = colour_labels["NumBlocks"].as<int>();
-    
+
+    // Dedicated non-default stream: all async GPU work in this operator (ClearOverlay,
+    // SetText, DrawKeptBoxesOnOverlay) must run off the legacy default stream (0), which
+    // implicitly synchronizes with every other stream in the process and can stall/deadlock
+    // teardown with the other operators' cuda_stream_pool-backed streams.
+    cudaStreamCreate(&this->cuda_stream);
+
     // -------------------------
     // GPU output buffers
     // -------------------------
@@ -170,6 +176,43 @@ void YoloSegPostprocesserGPUOp::start()
     InitClearRoi();
 
     this->count = 0;
+}
+
+void YoloSegPostprocesserGPUOp::stop()
+{
+    if (this->cuda_stream) {
+        cudaStreamSynchronize(this->cuda_stream);
+    }
+
+    // Release the pool-backed overlay tensor now (decrements the GXF entity refcount and
+    // frees it back to the BlockMemoryPool) instead of leaving it for this object's
+    // destructor, which would run after gxf_executor starts destroying the context and
+    // produce "BlockMemoryPool still has unreleased memory" / hangs on teardown.
+    this->OverlayEntity = nvidia::gxf::Entity();
+    this->OverlayInitialised = false;
+    this->d_overlay = nullptr;
+
+    if (this->d_out_boxes_)  { cudaFree(this->d_out_boxes_);  this->d_out_boxes_ = nullptr; }
+    if (this->d_out_count_)  { cudaFree(this->d_out_count_);  this->d_out_count_ = nullptr; }
+    if (this->d_keep_flags_) { cudaFree(this->d_keep_flags_); this->d_keep_flags_ = nullptr; }
+    if (this->d_kept_masks_) { cudaFree(this->d_kept_masks_); this->d_kept_masks_ = nullptr; }
+
+    // d_kept_boxes_ / d_kept_count_ are device pointers mapped from pinned host memory
+    // (h_kept_boxes_ / h_kept_count_) via cudaHostGetDevicePointer, not separate
+    // allocations — must not be cudaFree'd. The host allocations are released below.
+    this->d_kept_boxes_ = nullptr;
+    this->d_kept_count_ = nullptr;
+
+    if (this->h_box_roi_)    { cudaFreeHost(this->h_box_roi_);    this->h_box_roi_ = nullptr; }
+    if (this->h_text_roi)    { cudaFreeHost(this->h_text_roi);    this->h_text_roi = nullptr; }
+    if (this->h_rubber_roi)  { cudaFreeHost(this->h_rubber_roi);  this->h_rubber_roi = nullptr; }
+    if (this->h_kept_boxes_) { cudaFreeHost(this->h_kept_boxes_); this->h_kept_boxes_ = nullptr; }
+    if (this->h_kept_count_) { cudaFreeHost(this->h_kept_count_); this->h_kept_count_ = nullptr; }
+
+    if (this->cuda_stream) {
+        cudaStreamDestroy(this->cuda_stream);
+        this->cuda_stream = nullptr;
+    }
 }
 
 void YoloSegPostprocesserGPUOp::compute(holoscan::InputContext& op_input,holoscan::OutputContext& op_output,holoscan::ExecutionContext& context)
@@ -524,8 +567,11 @@ void YoloSegPostprocesserGPUOp::DrawLegendOnOverlay() {
 
 YoloSegPostprocesserGPUOp::~YoloSegPostprocesserGPUOp()
 {
+    // Normal teardown releases everything in stop(), which Holoscan guarantees runs
+    // before the destructor. These are a fallback only for the case where the operator
+    // is destroyed without having been started (e.g. construction failure).
     if (this->h_text_roi) cudaFreeHost(this->h_text_roi);
     if (this->h_rubber_roi) cudaFreeHost(this->h_rubber_roi);
     if (this->h_kept_boxes_) cudaFreeHost(this->h_kept_boxes_);
-    if (this->h_kept_count_)        cudaFreeHost(this->h_kept_count_);
+    if (this->h_kept_count_) cudaFreeHost(this->h_kept_count_);
 }

@@ -55,6 +55,7 @@ class InferencePipeline : public holoscan::Application {
 
     YAML::Node config_;
     YAML::Node procedure_config_;
+    bool is_recorded_;
 };
 
 #endif //  "_INFERENCE_PIPELINE_HPP_"
