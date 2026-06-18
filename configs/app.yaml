@@ -6,8 +6,7 @@ Height: 2160
 # Surgical Phase Recognition
 PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
 PhaseGrpcServer: "localhost:50051"
-PhaseSampleRateHz: 5      # How often the phase branch samples a frame, independent of video FPS
-PhaseReportIntervalSec: 60 # How often to log the highest-probability phase over the recent window
+PhaseSampleIntervalSec: 10 # How often to run phase recognition and print the result, independent of video FPS
 
 # Recording
 RecordingPath: "/workspace/iSurgical/data/outputs"
@@ -75,7 +74,6 @@ ProcedureConfig:
     InferenceResizeHeight: 224
     InferenceResizeWidth: 224
     ModelPath: "/workspace/iSurgical/data/models/lc_phase_model.onnx"
-    SequenceLength: 15
     NumPhases: 13
     PhaseName:
       - "preparation"
@@ -139,3 +137,22 @@ ProcedureConfig:
     MaskThreshold: 0.5
     NumClass: 12
 
+  Laparoscopic_Gastric_Bypass:
+    InferenceResizeHeight: 224
+    InferenceResizeWidth: 224
+    ModelPath: "/workspace/iSurgical/data/models/lc_phase_model.onnx"
+    NumPhases: 13
+    PhaseName:
+      - "preparation"
+      - "gastric_pouch_creation"
+      - "omentum_division"
+      - "gastrojejunal_anastomosis"
+      - "anastomosis_test"
+      - "jejunal_separation"
+      - "closure_petersen_space"
+      - "jejunojejunal_anastomosis"
+      - "closure_mesenteric_defect"
+      - "cleaning_coagulation"
+      - "disassembling"
+      - "other_intervention"
+      - "out_of_body"

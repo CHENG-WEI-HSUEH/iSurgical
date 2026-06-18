@@ -163,11 +163,11 @@ void InferencePipeline::ConfigureRecorderOperator() {
 }
 
 void InferencePipeline::ConfigurePhaseFrameSamplerOperator() {
-  int sample_rate_hz = 5;
-  if (config_["PhaseSampleRateHz"]) {
-    sample_rate_hz = config_["PhaseSampleRateHz"].as<int>();
+  int sample_interval_sec = 10;
+  if (config_["PhaseSampleIntervalSec"]) {
+    sample_interval_sec = config_["PhaseSampleIntervalSec"].as<int>();
   }
-  int64_t period_ns = 1'000'000'000LL / sample_rate_hz;
+  int64_t period_ns = static_cast<int64_t>(sample_interval_sec) * 1'000'000'000LL;
 
   phase_frame_sampler_op_ = make_operator<PhaseFrameSamplerOp>(
       "PhaseFrameSampler",
@@ -219,37 +219,32 @@ void InferencePipeline::ConfigurePhaseInferenceOperator() {
 }
 
 void InferencePipeline::ConfigureSurgicalPhaseOperator() {
-    auto bypass_config = config_["ProcedureConfig"]["Laparoscopic_Gastric_Bypass"];
+    // 1. Safe access to the nested configurations
+    auto proc_config = config_["ProcedureConfig"];
+    auto bypass_config = proc_config["Laparoscopic_Gastric_Bypass"];
 
-    int report_interval_sec = 60;
-    if (config_["PhaseReportIntervalSec"]) {
-        report_interval_sec = config_["PhaseReportIntervalSec"].as<int>();
-    }
+    try {
+        int num_phases = bypass_config["NumPhases"].as<int>();
+        auto phase_names = bypass_config["PhaseName"].as<std::vector<std::string>>();
 
-    if (!bypass_config) {
-        HOLOSCAN_LOG_ERROR("Laparoscopic_Gastric_Bypass configuration block not found in YAML.");
+        // Double check array length symmetry matching your start() check
+        if (phase_names.size() != static_cast<size_t>(num_phases)) {
+            HOLOSCAN_LOG_WARN("YAML config mismatch: NumPhases is {} but PhaseName list size is {}.", 
+                              num_phases, phase_names.size());
+        }
 
-        // Null Guard: Fallback allocation with safe defaults so the app won't SegFault
+        // 3. Normal secure initialization
         surgical_phase_op_ = make_operator<TemporalPhasePostprocessorOp>(
             "SurgicalPhasePostprocessor",
-            holoscan::Arg("SequenceLength") = 15,
-            holoscan::Arg("NumPhases")      = 13,
-            holoscan::Arg("PhaseName")      = std::vector<std::string>{"Unknown"},
-            holoscan::Arg("ReportIntervalSec") = report_interval_sec
+            holoscan::Arg("NumPhases") = num_phases,
+            holoscan::Arg("PhaseName") = phase_names
         );
-        return;
+
+        HOLOSCAN_LOG_INFO("Surgical Phase Postprocessor configured successfully with {} phases.", num_phases);
+
+    } catch (const YAML::Exception& e) {
+        HOLOSCAN_LOG_ERROR("Failed to parse YAML fields for Phase Postprocessor: {}", e.what());
     }
-
-    // Normal initialization if the block exists
-    surgical_phase_op_ = make_operator<TemporalPhasePostprocessorOp>(
-        "SurgicalPhasePostprocessor",
-        holoscan::Arg("SequenceLength") = bypass_config["SequenceLength"].as<int>(),
-        holoscan::Arg("NumPhases")      = bypass_config["NumPhases"].as<int>(),
-        holoscan::Arg("PhaseName")      = bypass_config["PhaseName"].as<std::vector<std::string>>(),
-        holoscan::Arg("ReportIntervalSec") = report_interval_sec
-    );
-
-    HOLOSCAN_LOG_INFO("Surgical Phase Postprocessor configured successfully.");
 }
 
 void InferencePipeline::ConfigurePhaseGrpcClient() {

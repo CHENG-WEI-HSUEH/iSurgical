@@ -2,10 +2,9 @@
 #define TEMPORAL_PHASE_POSTPROCESSOR_HPP
 
 #include <holoscan/holoscan.hpp>
-#include <chrono>
-#include <deque>
 #include <string>
 #include <vector>
+#include <deque>
 #include <memory>
 #include <functional>
 
@@ -24,22 +23,17 @@ class TemporalPhasePostprocessorOp : public holoscan::Operator {
   }
 
  private:
-  // Holoscan Parameters loaded from the YAML file
-  holoscan::Parameter<int> seq_len_;
   holoscan::Parameter<int> n_phases_;
   holoscan::Parameter<std::vector<std::string>> phase_names_;
-  holoscan::Parameter<int> report_interval_sec_;
 
-  // Sliding history buffer of past frame classification logits or embeddings
-  // Storing raw logit vectors for smoothing
-  std::deque<std::vector<float>> logit_history_;
-
-  // Longer-term accumulator: summed per-class softmax probability since the
-  // last report, used to log the highest-probability phase once per
-  // report_interval_sec_ regardless of the (much shorter) smoothing window above.
-  std::vector<float> minute_prob_sum_;
-  int minute_tick_count_ = 0;
-  std::chrono::steady_clock::time_point last_report_time_;
+  // Robust State Tracking
+  int current_phase_idx_{0}; // Hardcoded start at 0 ("preparation")
+  
+  // History buffer: stores the softmax probability vector for the last N evaluations
+  std::deque<std::vector<float>> probability_history_;
+  
+  // 3 minutes window / 10 seconds per sample = 18 samples max history
+  static constexpr size_t kMaxHistorySize = 18; 
 
   std::function<void(const std::string&)> phase_callback_;
 };
