@@ -353,10 +353,13 @@ class ORDashboard(QMainWindow):
             start_time_ms=start_time_ms,
         )
 
+        or_id = session_metadata.get("OperatingRoom", "").strip()
+        metadata = (("or-id", or_id),) if or_id else ()
+
         try:
             with grpc.insecure_channel(self.grpc_server_address) as channel:
                 stub = surgical_phase_pb2_grpc.SurgicalPhaseServiceStub(channel)
-                response = stub.StartSurgery(surgery_info, timeout=5)
+                response = stub.StartSurgery(surgery_info, timeout=5, metadata=metadata)
             if not response.success:
                 QMessageBox.warning(self, "gRPC Notification Failed", "Phase server rejected the StartSurgery request.")
         except grpc.RpcError as e:

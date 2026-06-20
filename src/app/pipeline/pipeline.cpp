@@ -10,6 +10,7 @@
 
 #include "./operators/yuan_capture_source/yuan_capture_source.hpp"
 #include "./operators/yolo_seg_postprocessor_gpu/yolo_seg_postprocessor_gpu.hpp"
+#include "./operators/lc_seg_postprocessor/lc_seg_postprocessor_gpu.hpp"
 #include "./operators/periodic_counter/periodic_counter.hpp"
 #include "./operators/async_recorder/async_recorder.hpp"
 #include "./operators/lc_surgical_phase/lc_surgical_phase.hpp"
@@ -64,8 +65,19 @@ void InferencePipeline::ConfigureInferenceOperator() {
     holoscan::ops::InferenceOp::DataVecMap pre_processor_map;
     pre_processor_map.insert("segmentation inference", std::vector<std::string>{"raw_video"});
 
+    // The inference_map names the model's outputs, in declaration order, with the tensor
+    // names the downstream postprocessor consumes. Each procedure's model has a different
+    // output signature, so this must match the specific ONNX:
+    //   - Laparoscopic Cholecystectomy: MultiHeadGCNFormer -> head_0..head_3 + correlation_scores
+    //   - Urology: YOLO-seg            -> outputs (detections) + proto (mask prototypes)
+    const std::string procedure = config_["Procedure"].as<std::string>();
     holoscan::ops::InferenceOp::DataVecMap inference_map;
-    inference_map.insert("segmentation inference", std::vector<std::string>{"outputs", "proto"});
+    if (procedure == "Laparoscopic Cholecystectomy") {
+        inference_map.insert("segmentation inference",
+            std::vector<std::string>{"head_out_0", "head_out_1", "head_out_2", "head_out_3", "corr_scores"});
+    } else {
+        inference_map.insert("segmentation inference", std::vector<std::string>{"outputs", "proto"});
+    }
 
     auto device_allocator = make_resource<holoscan::UnboundedAllocator>("device_allocator");
 
@@ -83,11 +95,21 @@ void InferencePipeline::ConfigureInferenceOperator() {
 
 void InferencePipeline::ConfigurePostProcessorOperator() {
     auto src_fc_block_size = config_["Width"].as<uint32_t>() * config_["Height"].as<uint32_t>() * 4 * sizeof(float);
-
-    post_processor_op_ = make_operator<YoloSegPostprocesserGPUOp>(
-        "YoloSegPostprocesserGPUOp",
-        holoscan::Arg("colour_labels") = procedure_config_,
-        holoscan::Arg("MemoryAllocator") = make_resource<holoscan::BlockMemoryPool>("pool", 1, src_fc_block_size, procedure_config_["NumBlocks"].as<uint32_t>()));
+    const std::string procedure = config_["Procedure"].as<std::string>();
+    if (procedure == "Laparoscopic Cholecystectomy") {
+        post_processor_op_ = make_operator<LcSegPostprocesserGPUOp>(
+            "LcSegPostprocesserGPUOp",
+            holoscan::Arg("colour_labels") = procedure_config_,
+            holoscan::Arg("MemoryAllocator") = make_resource<holoscan::BlockMemoryPool>("pool", 1, src_fc_block_size, procedure_config_["NumBlocks"].as<uint32_t>()));
+    } else if (procedure == "Urology") {
+        post_processor_op_ = make_operator<YoloSegPostprocesserGPUOp>(
+            "YoloSegPostprocesserGPUOp",
+            holoscan::Arg("colour_labels") = procedure_config_,
+            holoscan::Arg("MemoryAllocator") = make_resource<holoscan::BlockMemoryPool>("pool", 1, src_fc_block_size, procedure_config_["NumBlocks"].as<uint32_t>()));
+    } else {
+        HOLOSCAN_LOG_ERROR("Unsupported Procedure: {}", procedure);
+        throw std::runtime_error("Unsupported Procedure: " + procedure);
+    }
 }
 
 void InferencePipeline::ConfigureVisualizerOperator() {

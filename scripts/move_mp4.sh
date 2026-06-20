@@ -1,48 +1,49 @@
 #!/bin/bash
 
 # ==========================================
-# 远程服务器及路径配置
+# Remote Server and Path Configuration
 # ==========================================
-REMOTE_USER="andyhsueh"
-REMOTE_IP="192.168.0.52"
-REMOTE_PATH="/home/andyhsueh/Videos/"
+REMOTE_USER="pandora"
+REMOTE_IP="127.0.0.1"
+REMOTE_PATH="/mnt/win_share"
 
-# 依赖 SSH Key 免密登录（不再使用明文密码 / sshpass）。
-# 请确保运行此脚本的环境已将对应的私钥加入 SSH agent 或 ~/.ssh，
-# 且该公钥已加入 ${REMOTE_USER}@${REMOTE_IP} 的 ~/.ssh/authorized_keys。
+# Relies on SSH Key passwordless login (no longer using plaintext passwords / sshpass).
+# Please ensure the environment running this script has added the corresponding private key 
+# to the SSH agent or ~/.ssh, and the public key has been added to 
+# ${REMOTE_USER}@${REMOTE_IP}:~/.ssh/authorized_keys.
 
 # ==========================================
-# 动态获取脚本参数（Argument）
+# Dynamically Get Script Argument
 # ==========================================
-# $1 表示运行脚本时输入的第一个参数
+# $1 represents the first argument entered when running the script
 TARGET_FILE="$1"
 
-# 1. 检查用户是否输入了文件名参数
+# 1. Check if the user provided a filename argument
 if [ -z "$TARGET_FILE" ]; then
-    echo -e "\033[31m[错误] 请提供要传输的文件名！\033[0m"
-    echo -e "使用方法示例: \033[36m$0 文件名.mp4\033[0m"
+    echo -e "\033[31m[Error] Please provide the filename to transfer!\033[0m"
+    echo -e "Usage example: \033[36m$0 filename.mp4\033[0m"
     exit 1
 fi
 
-# 2. 检查本地目标视频文件是否存在
+# 2. Check if the local target video file exists
 if [ ! -f "$TARGET_FILE" ]; then
-    echo -e "\033[31m[错误] 当前目录下未找到文件: $TARGET_FILE\033[0m"
+    echo -e "\033[31m[Error] File not found in the current directory: $TARGET_FILE\033[0m"
     exit 1
 fi
 
 echo "------------------------------------------------"
-echo "待传文件: $TARGET_FILE"
-echo "目标服务器: $REMOTE_IP"
-echo "目标路径: $REMOTE_PATH"
+echo "File to transfer: $TARGET_FILE"
+echo "Target Server:    $REMOTE_IP"
+echo "Target Path:      $REMOTE_PATH"
 echo "------------------------------------------------"
 
-# 3. 执行传输（依赖 SSH Key 免密登录）
+# 3. Execute transfer (relies on SSH Key passwordless login)
 rsync -avP -e "ssh -o StrictHostKeyChecking=no" --rsync-path="mkdir -p $REMOTE_PATH && rsync" "$TARGET_FILE" "${REMOTE_USER}@${REMOTE_IP}:${REMOTE_PATH}"
 
-# 4. 检查传输返回值
+# 4. Check transfer exit code
 if [ $? -eq 0 ]; then
-    echo -e "\033[32m\n[成功] 文件 $TARGET_FILE 已成功传输！\033[0m"
+    echo -e "\033[32m\n[Success] File $TARGET_FILE has been successfully transferred!\033[0m"
 else
-    echo -e "\033[31m\n[失败] 传输未完成，请检查网络或权限。\033[0m"
+    echo -e "\033[31m\n[Failure] Transfer incomplete. Please check your network or permissions.\033[0m"
     exit 2
 fi

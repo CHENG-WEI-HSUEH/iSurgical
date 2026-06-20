@@ -65,6 +65,7 @@ docker build --no-cache --network=host -f docker/Dockerfile -t isurgical-app:lat
       --device /dev/video0:/dev/video0 \
       -v $(pwd)/configs:/workspace/iSurgical/configs \
       -v $(pwd)/data:/workspace/iSurgical/data \
+      -v $(pwd)/scripts:/workspace/iSurgical/scripts \
       -v $HOME/.ssh:/root/.ssh-host:ro \
       isurgical-app:latest \
       ./bin/iSurgical configs/app.yaml
@@ -85,6 +86,7 @@ docker build --no-cache --network=host -f docker/Dockerfile -t isurgical-app:lat
       --device /dev/video0:/dev/video0 \
       -v $(pwd)/configs:/workspace/iSurgical/configs \
       -v $(pwd)/data:/workspace/iSurgical/data \
+      -v $(pwd)/scripts:/workspace/iSurgical/scripts \
       -v $HOME/.ssh:/root/.ssh-host:ro \
       -v $(pwd)/nsight_reports:/workspace/iSurgical/nsight_reports \
       -v /opt/nvidia/nsight-systems/2024.5.4:/opt/nvidia/nsight-systems/2024.5.4 \

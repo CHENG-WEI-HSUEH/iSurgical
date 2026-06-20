@@ -67,6 +67,10 @@ add_executable(iSurgical
     src/operators/yuan_capture_source/yuan_capture_source.cpp
     src/operators/yolo_seg_postprocessor_gpu/yolo_seg_postprocessor_gpu.cpp
     src/operators/yolo_seg_postprocessor_gpu/CUDA_Postprocess.cu
+
+    src/operators/lc_seg_postprocessor/lc_seg_postprocessor_gpu.cpp
+    src/operators/lc_seg_postprocessor/lc_cuda_postprocess.cu
+
     src/operators/periodic_counter/periodic_counter.cpp
     src/operators/async_recorder/async_recorder.cpp
     src/operators/lc_surgical_phase/lc_surgical_phase.cpp
@@ -84,6 +88,7 @@ target_include_directories(iSurgical
         ${CMAKE_SOURCE_DIR}/src/operators
         ${CMAKE_SOURCE_DIR}/src/operators/yuan_capture_source
         ${CMAKE_SOURCE_DIR}/src/operators/yolo_seg_postprocessor_gpu
+        ${CMAKE_SOURCE_DIR}/src/operators/lc_seg_postprocessor
         ${CMAKE_SOURCE_DIR}/src/operators/periodic_counter
         ${CMAKE_SOURCE_DIR}/src/operators/async_recorder
         ${CMAKE_SOURCE_DIR}/src/operators/lc_surgical_phase

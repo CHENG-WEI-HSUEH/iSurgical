@@ -5,14 +5,14 @@ Height: 2160
 
 # Surgical Phase Recognition
 PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
-PhaseGrpcServer: "localhost:50051"
+PhaseGrpcServer: "192.168.0.73:50051"
 PhaseSampleIntervalSec: 10 # How often to run phase recognition and print the result, independent of video FPS
 
 # Recording
 RecordingPath: "/workspace/iSurgical/data/outputs"
 IsRecorded: true
 
-Procedure: "Laparoscopic Cholecystectomy" #"Laparoscopic Cholecystectomy" #
+Procedure: "Laparoscopic Cholecystectomy"                      #"Laparoscopic Cholecystectomy" #
 ProcedureConfig:
   Laparoscopic Cholecystectomy:
     # Pre-processor (FormatConverter)
@@ -21,12 +21,21 @@ ProcedureConfig:
 
     # Pre-processor (FormatConverter)
     InferenceFormat: "float32"
-    InferenceResizeHeight: 224
-    InferenceResizeWidth: 224
+    InferenceResizeHeight: 512
+    InferenceResizeWidth: 512
     NumBlocks: 4
 
-    # Inference (YoloSeg)
+    # Inference (MultiHeadGCNFormer segmentation)
     ModelPath: "/workspace/iSurgical/data/models/lc_seg_model.onnx"
+
+    # Segmentation head layout. Each head is a softmax classifier over (len(group) + 1)
+    # channels: channel 0 is that head's background, channels 1..N map to the global class
+    # ids listed below. Must match HEAD_GROUPS used at ONNX export (convert_to_onnx.py).
+    head_groups:
+      - [1, 2, 3, 13]            # Gallbladder, Cystic duct, Cystic artery, Common bile duct
+      - [4, 15]                  # Liver, Rouvieres sulcus
+      - [5, 12, 14]              # Hepatoduodenal ligament, Duodenum, Fat
+      - [6, 7, 8, 9, 10, 11]     # bipolar, clipper, grasper, hook, irrigator, scissors
 
     # Post-processor (YoloSegPostprocesserGPU)
     kclass_colours:
@@ -140,9 +149,9 @@ ProcedureConfig:
 
 Is_Record: false
 SessionMetadata:
-  OperatingRoom: OR-05
+  OperatingRoom: A04
   Surgeons:
-    - Dr. Lin
+    - SG-00001
   Department: General Surgery
-  PatientID: PT-0005D1
-  Timestamp: '2026-06-18T21:58:54.705619'
+  PatientID: PT-00001
+  Timestamp: '2026-06-20T00:24:44.071410'
