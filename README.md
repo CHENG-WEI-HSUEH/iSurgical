@@ -26,9 +26,15 @@ src/
 └── modules/
 configs/
 └── app.yaml                     # Runtime configuration
+data/
+├── models/                      # .onnx + generated .engine.fp16
+└── inputs/                      # Raw.gxf_entities / Raw.gxf_index replay clip
 docker/
 ├── Dockerfile
 └── entrypoint.sh
+scripts/
+└── package.sh                   # Build + save the deployable image tarball
+run.sh                           # Launch the container
 ```
 
 ## Configuration
@@ -45,33 +51,50 @@ Channels: 3
 ## Build
 
 ```bash
-docker build --network=host -f docker/Dockerfile -t isurgical-app:latest .
-docker build --no-cache --network=host -f docker/Dockerfile -t isurgical-app:latest .
+docker build --network=host -f docker/Dockerfile -t isurgical-app:usm-500 .
+docker build --no-cache --network=host -f docker/Dockerfile -t isurgical-app:usm-500 .
 ```
 
 ## Run
 
 ```bash
-  xhost +local:docker
-  docker run --rm -it \
-      --runtime nvidia \
-      --privileged \
-      --network host \
-      --ipc=host \
-      --ulimit memlock=-1 \
-      --ulimit stack=67108864 \
-      -e DISPLAY=:1 \
-      -v /tmp/.X11-unix:/tmp/.X11-unix \
-      --device /dev/video0:/dev/video0 \
-      -v $(pwd)/configs:/workspace/iSurgical/configs \
-      -v $(pwd)/data:/workspace/iSurgical/data \
-      -v $(pwd)/scripts:/workspace/iSurgical/scripts \
-      -v $HOME/.ssh:/root/.ssh-host:ro \
-      isurgical-app:latest \
-      ./bin/iSurgical configs/app.yaml
+./run.sh                        # configs/app.yaml
+./run.sh configs/other.yaml
+IMAGE=isurgical-app:usm-501 ./run.sh
 ```
 
-> `move_mp4.sh` (run automatically after the pipeline exits, to copy recordings off-device) uses SSH-key auth, so `~/.ssh` must be mounted in and your key must already be authorized on the remote host (`ssh-copy-id andyhsueh@192.168.0.52`).
+`run.sh` handles `xhost +local:docker`, the NVIDIA runtime flags and the X11 socket. It
+mounts the working tree's `configs/` and `data/` over the copies baked into the image, and
+skips `--device /dev/video0` when the capture card isn't present (replay configs don't need
+it). Override the device with `VIDEO_DEVICE=`, the display with `DISPLAY=`.
+
+## Package for deployment
+
+```bash
+./scripts/package.sh /media/pandora/Transcend
+./scripts/package.sh --no-build /media/pandora/Transcend    # save the existing image as-is
+```
+
+Builds the image and writes `isurgical-app-usm-500.tar.gz` — split into
+`.part-aa`, `.part-ab`, … chunks under FAT32's 4 GB file limit — plus a copy of `run.sh` to the
+given directory. The tarball is self-contained — compiled binary, `configs/`, the ONNX
+models, the prebuilt TensorRT engine and the replay clip — and contains **no source code**,
+since the runtime stage of the Dockerfile never sees `src/`. The image is ~17 GB
+uncompressed, so this needs external media, and dockerd also stages a full copy under
+`/var/lib/docker` first, so the internal disk needs that much free as well.
+
+On the target:
+
+```bash
+cat isurgical-app-usm-500.tar.gz.part-* | gunzip | docker load
+./run.sh
+```
+
+The TensorRT engine is built for this exact Orin + TensorRT 10.3 combination. On different
+hardware it is ignored and regenerated from the ONNX on first run (~10 minutes).
+
+## Profiling
+
 ```bash
   xhost +local:docker
   docker run --rm -it \
@@ -90,7 +113,7 @@ docker build --no-cache --network=host -f docker/Dockerfile -t isurgical-app:lat
       -v $HOME/.ssh:/root/.ssh-host:ro \
       -v $(pwd)/nsight_reports:/workspace/iSurgical/nsight_reports \
       -v /opt/nvidia/nsight-systems/2024.5.4:/opt/nvidia/nsight-systems/2024.5.4 \
-      isurgical-app:latest \
+      isurgical-app:usm-500 \
       bash -c "/opt/nvidia/nsight-systems/2024.5.4/bin/nsys profile \
         --output /workspace/iSurgical/nsight_reports/isurgical_report \
         --trace cuda,nvtx,osrt \

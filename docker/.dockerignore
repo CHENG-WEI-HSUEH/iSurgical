@@ -1,8 +1,0 @@
-build
-.git
-.gitignore
-.vscode
-.idea
-data/outputs
-data/reports
-*.mp4

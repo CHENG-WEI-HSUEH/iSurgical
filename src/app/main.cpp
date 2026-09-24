@@ -24,17 +24,6 @@ int main(int argc, char* argv[])
 
     // Run the application
     app.run();
-    
-    std::string rec_path = config["RecordingPath"].as<std::string>();
-    std::string cmd1 = "./scripts/move_mp4.sh " + rec_path + "/raw.mp4";
-    std::string cmd2 = "./scripts/move_mp4.sh " + rec_path + "/segmentation.mp4";
-
-    if (std::system(cmd1.c_str()) != 0) {
-        HOLOSCAN_LOG_ERROR("Failed to move {}/raw.mp4 to remote server", rec_path);
-    }
-    if (std::system(cmd2.c_str()) != 0) {
-        HOLOSCAN_LOG_ERROR("Failed to move {}/segmentation.mp4 to remote server", rec_path);
-    }
 
     return 0;
 }

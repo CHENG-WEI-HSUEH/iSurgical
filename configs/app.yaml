@@ -8,6 +8,11 @@ PhaseModelPath: "/workspace/iSurgical/data/models/surgical_phase_model.onnx"
 PhaseGrpcServer: "192.168.0.73:50051"
 PhaseSampleIntervalSec: 10 # How often to run phase recognition and print the result, independent of video FPS
 
+# Replay
+ReplayPath: "/workspace/iSurgical/data/inputs"
+ReplayBasename: "Raw"
+ReplayRepeat: true
+
 # Recording
 RecordingPath: "/workspace/iSurgical/data/outputs"
 IsRecorded: true
@@ -147,11 +152,4 @@ ProcedureConfig:
     MaskThreshold: 0.5
     NumClass: 12
 
-Is_Record: false
-SessionMetadata:
-  OperatingRoom: A04
-  Surgeons:
-    - SG-00001
-  Department: General Surgery
-  PatientID: PT-00001
-  Timestamp: '2026-06-20T00:24:44.071410'
+

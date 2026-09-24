@@ -24,9 +24,7 @@ RUN --network=host apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY CMakeLists.txt ./
-COPY protos ./protos
 COPY src ./src
-COPY configs ./configs
 
 RUN mkdir -p build && \
     cd build && \
@@ -61,15 +59,20 @@ COPY --from=builder /runtime-libs/ /usr/lib/aarch64-linux-gnu/
 COPY --from=builder /runtime-gst-plugins/gstreamer-1.0/ /usr/lib/aarch64-linux-gnu/gstreamer-1.0/
 RUN ldconfig
 
-RUN mkdir -p ./bin ./data/inputs ./data/outputs ./data/reports ./logs
+RUN mkdir -p ./bin ./data/outputs ./data/reports ./logs
 
-COPY --from=builder /workspace/iSurgical/build/iSurgical ./bin/iSurgical
+# Baked in so the image is a self-contained deliverable (see scripts/package.sh): it runs
+# with no bind mounts at all. run.sh still mounts host configs/ and data/ over these when
+# they exist, so development keeps working off the working tree.
+# Ordered least- to most-frequently-changed to keep the ~5 GB data layers out of rebuilds.
+COPY data/models ./data/models
+COPY data/inputs ./data/inputs
 COPY configs ./configs
-COPY scripts ./scripts
-RUN chmod +x ./scripts/move_mp4.sh
 
 COPY docker/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
+
+COPY --from=builder /workspace/iSurgical/build/iSurgical ./bin/iSurgical
 
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=all

@@ -1,0 +1,10 @@
+.git
+.gitignore
+.vscode
+.idea
+.claude
+build/
+data/outputs/
+data/reports/
+nsight_reports/
+*.tar.gz
