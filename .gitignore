@@ -1,2 +1,5 @@
 build/
 data/
+build-test/
+test/reports/
+__pycache__/

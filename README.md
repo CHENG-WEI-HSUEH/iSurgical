@@ -1,8 +1,14 @@
-# iprovision
+# iSurgical
 
 Real-time surgical scene segmentation with `lc_seg_model.onnx` (ONNX Runtime + OpenCV, C++17).
 Frames come from a camera or an mp4 replayed in real time. Each frame is segmented, and the
 result is printed, drawn over the frame, and optionally shown in a window or recorded.
+Phase recognition and remaining surgical duration (RSD) run alongside on their own thread.
+
+- Repository: <https://github.com/CHENG-WEI-HSUEH/iSurgical> (branch `without-holoscan`: this ONNX Runtime + OpenCV version)
+- Build output: `build/libisurgical.so` (the whole pipeline as a library) and `build/isurgical` (command-line app)
+- Used by [iProvision](https://github.com/CHENG-WEI-HSUEH/iProvision), which loads `libisurgical.so` through its `isurgical` plugin and runs it as a managed child process
+- Tests: GoogleTest, 240 cases, pass-rate and coverage report, no GPU or model files needed (see [Tests](#tests))
 
 ## Requirements
 
@@ -15,16 +21,24 @@ result is printed, drawn over the frame, and optionally shown in a window or rec
 | OpenCV | 4.6 (system) | |
 | yaml-cpp | 0.8 (system, `libyaml-cpp-dev`) | reads `configs/config.yaml` |
 | CMake | ≥ 3.20 | |
+| GoogleTest | 1.14 (system, `libgtest-dev`) | tests only |
+| Python 3, gcov | any 3.x / ships with gcc | tests only: fake ONNX models and the coverage report |
 
 ## Build
 
-First build (configures CMake, then compiles):
+Get the source (the ONNX Runtime + OpenCV version lives on the `without-holoscan` branch):
 
 ```bash
-cd /media/andyhsueh/Storage2/smartsurgery/isurgical
+git clone -b without-holoscan https://github.com/CHENG-WEI-HSUEH/iSurgical.git
+cd iSurgical
+```
+
+First build (configures CMake, then compiles). Point the two paths at your ONNX Runtime and cuDNN folders:
+
+```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-      -DONNXRUNTIME_ROOT_DIR=/media/andyhsueh/Storage2/sideproject/Onnx/onnxruntime-linux-x64-gpu-1.20.1 \
-      -DCUDNN_LIB_DIR=/media/andyhsueh/Storage2/sideproject/Onnx/cudnn-9.5.1/lib
+      -DONNXRUNTIME_ROOT_DIR=/path/to/onnxruntime-linux-x64-gpu-1.20.1 \
+      -DCUDNN_LIB_DIR=/path/to/cudnn-9.5.1/lib
 cmake --build build -j$(nproc)
 ```
 
@@ -37,29 +51,45 @@ cmake --build build -j$(nproc)
   cmake --build build -j$(nproc)
   ```
 - To start from scratch, delete `build/` and run both commands again.
-- The executable is `build/iprovision`.
+- Outputs: `build/libisurgical.so` (SONAME `libisurgical.so.0`, the library other programs link) and the
+  executable `build/isurgical`, a thin client of the library. iProvision ships a copy of
+  `libisurgical.so.0.1.0` in its `lib/` folder; copy the new one there after changing the pipeline.
+
+## Data (not in git)
+
+`data/` is excluded from the repository: the models are too large for GitHub (> 100 MB per file) and the
+videos may contain patient data. Put these files in place before running (paths relative to the project root):
+
+| File | Size | Used for |
+|---|---|---|
+| `data/models/lc_seg_model.onnx` | ≈ 112 MB | segmentation (`--model`) |
+| `data/models/preprocess_step.onnx` | ≈ 70 KB | phase / RSD preprocessing |
+| `data/models/multimodal_rsd_step.onnx` | ≈ 389 MB | phase / RSD model |
+| `data/inputs/video01.mp4` | ≈ 693 MB | default input (`--input`) |
+
+Without the RSD models, run with `--no-rsd`. The tests do not need any of these files.
 
 ## Run
 
 Run from the project root so the default model, config and input paths resolve.
 
 ```bash
-cd /media/andyhsueh/Storage2/smartsurgery/isurgical
+cd iSurgical
 
 # Defaults: data/inputs/video01.mp4, configs/config.yaml (laparoscopic cholecystectomy), GPU, console output only
-./build/iprovision
+./build/isurgical
 
 # Show the result full screen and record it (q / Esc to quit)
-./build/iprovision --input data/inputs/video01.mp4 --output data/outputs/output.mp4 --show
+./build/isurgical --input data/inputs/video01.mp4 --output data/outputs/output.mp4 --show
 
 # Live camera 0 in a resizable window
-./build/iprovision --input 0 --show --windowed
+./build/isurgical --input 0 --show --windowed
 
 # Segmentation only, on CPU
-./build/iprovision --cpu --no-rsd
+./build/isurgical --cpu --no-rsd
 
 # List all options
-./build/iprovision --help
+./build/isurgical --help
 ```
 
 `--output` overwrites an existing file. Its directory must already exist.
@@ -78,7 +108,7 @@ cd /media/andyhsueh/Storage2/smartsurgery/isurgical
 | `--show` | off | display the visualization full screen, aspect ratio kept (q / Esc to quit) |
 | `--windowed` | off | with `--show`, use a resizable window instead of full screen |
 | `--no-rsd` | off | disable phase / RSD inference |
-| `--shm <name>` | none | publish the phase / class tables and per-frame status to shared memory created by a parent process (layout in `src/common/isurgical_shm.hpp`, reader: iprovision's `AppManager`). Setting its `stop_requested` flag ends the run cleanly |
+| `--shm <name>` | none | publish the phase / class tables and per-frame status to shared memory created by a parent process (layout in `src/common/isurgical_shm.hpp`, reader: the parent process, e.g. iProvision). Setting its `stop_requested` flag ends the run cleanly |
 
 Each processed frame prints the inference time, the 7 correlation scores, the regions found per
 head (class name, area, mean confidence), and the latency from capture to display. At exit the program prints how many frames
@@ -252,6 +282,72 @@ when it is full.
 | `src/postproc/postproc_seg.*` | `SegPostConfig` (YAML loader) and `SegPostProcessor`: class mapping, thresholds, cleanup, regions, head fusion, overlay with class names |
 | `src/record/` | `VideoRecord`: background-thread video writer with a bounded queue |
 | `src/common/blocking_queue.hpp` | bounded thread-safe queue (block or drop-oldest) |
+
+## Tests
+
+`test/` is a **stand-alone CMake project** with a GoogleTest suite. It recompiles the library sources with
+`--coverage`, so the main `CMakeLists.txt` and `build/` are not touched. Every line of the test code, the
+test `CMakeLists.txt` and the scripts is commented.
+
+```bash
+test/run_tests.sh              # build + run all tests + write the reports (about 30 s)
+test/run_tests.sh --no-build   # re-run without recompiling
+```
+
+- The ONNX Runtime / cuDNN folders are read from `build/CMakeCache.txt` (or from `$ONNXRUNTIME_ROOT_DIR` /
+  `$CUDNN_LIB_DIR`), so configure the main build once first, or set the variables.
+- Exit code 0 = everything passed, 1 = something failed; the report is written either way.
+- With ctest instead: `cmake -S test -B build-test -DONNXRUNTIME_ROOT_DIR=... && cmake --build build-test -j && ctest --test-dir build-test`.
+
+**No models, GPU or video needed.** `test/tools/make_fake_models.py` (standard library only, no `onnx`
+package) writes tiny ONNX models with exactly the same inputs and outputs as the real ones, with known
+outputs: red pixels → Gallbladder, yellow → Liver, phase 2 with 0.7, RSD = 60 s × step, and so on. They run in
+milliseconds on CPU, so the C++ code (argmax, softmax, state carrying, post-processing, threads, recording,
+shared memory) is checked exactly. Broken variants (wrong names, missing outputs) cover the error paths.
+`test_real_models` additionally runs the real models in `data/` on CPU and GPU, and skips itself when they are missing.
+
+Reports in `test/reports/` (not in git):
+
+| File | Content |
+|---|---|
+| `test_report.html` | pass rate, line / function / branch coverage, every test case, annotated source (green = run, red = never run) |
+| `test_report.md` | the same summary as Markdown |
+| `summary.json` | the numbers, for CI |
+| `xml/<suite>.xml`, `logs/<suite>.log` | raw GoogleTest results and full output per test executable |
+
+Current results:
+
+| Metric | Result |
+|---|---|
+| Test cases | 240 in 13 executables |
+| Pass rate | **99.6 %** (239 / 240; the failure is the known defect below) |
+| Line coverage | **95.2 %** |
+| Function coverage | 97.1 % |
+| Branch coverage | 84.6 % (exception-only branches excluded) |
+
+Not covered: the `--show` window code (needs a display), and the "first GPU run failed → retry on CPU"
+fallbacks, which only trigger on a broken GPU setup. `src/main.cpp` is not measured (it only calls the tested
+`FromArgs` / `Run`).
+
+| Executable | Covers |
+|---|---|
+| `test_blocking_queue` | `common/blocking_queue.hpp`: FIFO, drop-oldest, `Close` wakes waiters, many producers / consumers |
+| `test_isurgical_shm` | `common/isurgical_shm.hpp`: layout, `CopyName` truncation, seqlock never torn under a concurrent reader |
+| `test_preproc_seg` | stretch / letterbox / black-border crop geometry, BGR→RGB [0, 1], `RestoreMask` round trips |
+| `test_preproc_rsd` | notebook crop (incl. round-half-to-even offsets), `preprocess_step` I/O, history across steps |
+| `test_postproc_seg` | YAML loading and every validation error, thresholds, morphology, regions, head fusion, drawing, alpha |
+| `test_postproc_rsd` | YAML loading and errors, `FormatDuration`, `RSD_Period` display refresh, console line, panel |
+| `test_infer_seg` | model I/O checks, argmax and softmax values, frame-size masks, letterbox, CUDA request = same result as CPU |
+| `test_infer_rsd` | state carried between steps, `Reset`, failures do not advance the state, CUDA vs CPU |
+| `test_capture` | real-time replay pacing, measured FPS, frame size, missing file / camera |
+| `test_record` | every frame written, tiny queue loses nothing, wrong size / empty frames, unwritable path |
+| `test_isurgical_config` | defaults, every option and flag, missing values, unknown options, usage text |
+| `test_isurgical_app` | `iSurgical::Run` end to end: image and video modes, recordings, every `Init()` failure, shared memory tables / status / `stop_requested` |
+| `test_real_models` | the real models on a real frame, CPU and GPU agreement (skipped without `data/`) |
+
+**Known defect** (the one failing test, `AppTest.ImageModeUnknownOutputExtensionReturnsError`): in image mode,
+`--output` with an extension OpenCV cannot write (for example `out.xyz`) makes `cv::imwrite` throw. `RunImage()`
+does not catch it, so the program aborts instead of printing an error and returning -1.
 
 ## Troubleshooting
 
