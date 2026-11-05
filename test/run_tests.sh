@@ -106,8 +106,9 @@ for exe in $(find "$BUILD" -maxdepth 1 -type f -name 'test_*' -perm -u+x | sort)
         # Overall failure
         STATUS=1
     fi
-    # Skipped tests in this suite (real models missing), shown next to the result
-    skipped=$(grep -c '^\[  SKIPPED \] [A-Za-z]' "$REPORT/logs/$name.log" || true)
+    # Skipped tests in this suite (real models missing), shown next to the result; gtest prints each
+    # skipped test twice (while running, with its time, and again in the summary), so count the timed lines only
+    skipped=$(grep -cE '^\[  SKIPPED \] [A-Za-z].* \([0-9]+ ms\)$' "$REPORT/logs/$name.log" || true)
     # One line per suite
     printf "  %-4s  %-24s (%ds)%s\n" "$result" "$name" "$((SECONDS - start))" \
            "$([[ $skipped -gt 0 ]] && echo "  $skipped skipped")"
