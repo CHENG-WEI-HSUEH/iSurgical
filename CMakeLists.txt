@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(iprovision LANGUAGES CXX)
+project(isurgical VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,8 +28,8 @@ endif()
 find_package(OpenCV)
 find_package(yaml-cpp REQUIRED)
 
-add_executable(iprovision
-    src/main.cpp
+# The whole pipeline as a shared library (libisurgical.so) that other programs can link against
+add_library(isurgical_api SHARED
     src/isurgical/isurgical.cpp
     src/cap/cap.cpp
     src/record/record.cpp
@@ -41,33 +41,58 @@ add_executable(iprovision
     src/postproc/postproc_rsd.cpp
 )
 
-target_link_libraries(iprovision PRIVATE
-    ${OpenCV_LIBS}
-    yaml-cpp::yaml-cpp
-    tbb
-    cudart
-    onnxruntime
-    pthread
+set_target_properties(isurgical_api PROPERTIES
+    OUTPUT_NAME isurgical
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 0
 )
 
-target_include_directories(iprovision PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${OpenCV_INCLUDE_DIRS}
-    ${ONNXRUNTIME_ROOT_DIR}/include
-    ${CUDNN_INCLUDE_DIR}
+# OpenCV and src/ are PUBLIC because isurgical.hpp includes preproc_seg.hpp, which includes OpenCV
+target_link_libraries(isurgical_api
+    PUBLIC
+        ${OpenCV_LIBS}
+    PRIVATE
+        yaml-cpp::yaml-cpp
+        tbb
+        cudart
+        onnxruntime
+        pthread
 )
 
-target_link_directories(iprovision PRIVATE
+target_include_directories(isurgical_api
+    PUBLIC
+        ${CMAKE_SOURCE_DIR}/src
+        ${OpenCV_INCLUDE_DIRS}
+    PRIVATE
+        ${ONNXRUNTIME_ROOT_DIR}/include
+        ${CUDNN_INCLUDE_DIR}
+)
+
+target_link_directories(isurgical_api PRIVATE
     ${ONNXRUNTIME_ROOT_DIR}/lib
     ${CUDNN_LIBRARY_DIR}
 )
+
+# Command-line app: a thin client of the library
+add_executable(isurgical src/main.cpp)
+target_link_libraries(isurgical PRIVATE isurgical_api)
+
 # Embed the runtime library paths so no LD_LIBRARY_PATH is needed.
 # DT_RPATH (not RUNPATH) is used on purpose: onnxruntime dlopens libonnxruntime_providers_cuda.so,
-# which has no search path of its own, and only the executable's DT_RPATH is applied to its cuDNN
-# dependencies. This makes it pick the Pascal-capable cuDNN in CUDNN_LIB_DIR over the system one.
-set(IPROVISION_RPATH ${ONNXRUNTIME_ROOT_DIR}/lib)
+# which has no search path of its own. glibc applies the DT_RPATH of every object in the loading
+# chain (onnxruntime -> libisurgical.so -> executable) to its cuDNN dependencies, so the library
+# carries the paths itself and works inside host programs we do not build. This makes it pick
+# the Pascal-capable cuDNN in CUDNN_LIB_DIR over the system one.
+set(ISURGICAL_RPATH ${ONNXRUNTIME_ROOT_DIR}/lib)
 if(CUDNN_LIBRARY_DIR)
-    list(PREPEND IPROVISION_RPATH ${CUDNN_LIBRARY_DIR})
+    list(PREPEND ISURGICAL_RPATH ${CUDNN_LIBRARY_DIR})
 endif()
-set_target_properties(iprovision PROPERTIES BUILD_RPATH "${IPROVISION_RPATH}")
-target_link_options(iprovision PRIVATE -Wl,--disable-new-dtags)
+foreach(target isurgical_api isurgical)
+    set_target_properties(${target} PROPERTIES BUILD_RPATH "${ISURGICAL_RPATH}")
+    target_link_options(${target} PRIVATE -Wl,--disable-new-dtags)
+endforeach()
+
+install(TARGETS isurgical_api isurgical
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
